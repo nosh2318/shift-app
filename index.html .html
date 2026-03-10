@@ -1,0 +1,1546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#2563eb"/>
+<title>シフト・給与管理</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>"/>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+*{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f3f4f6;overscroll-behavior:none;}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+input[type=number]{-moz-appearance:textfield;}
+.fade-in{animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.slide-up{animation:slideUp .3s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:white;font-family:sans-serif;text-align:center;">
+    <div><div style="font-size:40px;margin-bottom:12px;">📋</div><div style="font-size:16px;">読み込み中...</div></div>
+  </div>
+</div>
+<script type="text/plain" id="jsx-source">
+const {useState,useEffect,useReducer,useRef,useCallback} = React;
+
+/* ── helpers ── */
+const gid = () => Math.random().toString(36).slice(2,9);
+const td = () => {const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const gm = () => td().slice(0,7);
+const fc = (n) => Number(n).toLocaleString();
+const pt = (t) => {if(!t)return 0;const p=t.split(':');return parseInt(p[0])+parseInt(p[1])/60;};
+const dh = (s,e) => {const d=pt(e)-pt(s);return d<0?d+24:d;};
+const dim = (ym) => {const p=ym.split('-').map(Number);return new Date(p[0],p[1],0).getDate();};
+const dow = (ds) => ['日','月','火','水','木','金','土'][new Date(ds).getDay()];
+const dowi = (ds) => new Date(ds).getDay();
+const fdom = (ym) => new Date(ym+'-01').getDay();
+
+/* ── auth ── */
+var AUTH_KEY = 'shift_auth_hash';
+var AUTH_SESSION = 'shift_auth_session';
+
+/* simple hash for client-side password (NOT cryptographically secure, but sufficient for basic gate) */
+var simpleHash = function(str){
+  var hash=0;
+  for(var i=0;i<str.length;i++){
+    var c=str.charCodeAt(i);
+    hash=((hash<<5)-hash)+c;
+    hash=hash&hash;
+  }
+  return String(hash);
+};
+
+var getStoredHash = function(){return localStorage.getItem(AUTH_KEY);};
+var setStoredHash = function(h){localStorage.setItem(AUTH_KEY,h);};
+var isSessionAuth = function(){return sessionStorage.getItem(AUTH_SESSION)==='1';};
+var setSessionAuth = function(){sessionStorage.setItem(AUTH_SESSION,'1');};
+
+function AuthGate(props){
+  var s1=useState(isSessionAuth()); var authed=s1[0]; var setAuthed=s1[1];
+  var s2=useState(''); var pw=s2[0]; var setPw=s2[1];
+  var s3=useState(''); var err=s3[0]; var setErr=s3[1];
+  var s4=useState(!getStoredHash()); var isSetup=s4[0]; /* true if no password set yet */
+  var s5=useState(''); var pw2=s5[0]; var setPw2=s5[1];
+
+  if(authed) return props.children;
+
+  var handleLogin = function(){
+    if(!pw){setErr('パスワードを入力してください');return;}
+    var stored=getStoredHash();
+    if(simpleHash(pw)===stored){
+      setSessionAuth();
+      setAuthed(true);
+      setErr('');
+    } else {
+      setErr('パスワードが違います');
+    }
+  };
+
+  var handleSetup = function(){
+    if(!pw||pw.length<4){setErr('4文字以上のパスワードを入力してください');return;}
+    if(pw!==pw2){setErr('パスワードが一致しません');return;}
+    setStoredHash(simpleHash(pw));
+    setSessionAuth();
+    setAuthed(true);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center fade-in">
+        <div className="text-4xl mb-3">🔒</div>
+        <h1 className="text-xl font-bold text-gray-800 mb-1">シフト・給与管理</h1>
+        <p className="text-gray-400 text-xs mb-6">{isSetup?'初回セットアップ：パスワードを設定してください':'パスワードを入力してログイン'}</p>
+        <div className="flex flex-col" style={{gap:'10px'}}>
+          <input type="password" value={pw} onChange={function(e){setPw(e.target.value);setErr('');}}
+            onKeyDown={function(e){if(e.key==='Enter'){isSetup?handleSetup():handleLogin();}}}
+            placeholder={isSetup?'新しいパスワード（4文字以上）':'パスワード'}
+            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 text-center"
+            autoFocus/>
+          {isSetup && (
+            <input type="password" value={pw2} onChange={function(e){setPw2(e.target.value);setErr('');}}
+              onKeyDown={function(e){if(e.key==='Enter')handleSetup();}}
+              placeholder="パスワード確認"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 text-center"/>
+          )}
+          {err && <div className="text-red-500 text-xs">{err}</div>}
+          <button onClick={isSetup?handleSetup:handleLogin}
+            className="w-full bg-blue-600 text-white font-medium rounded-xl py-3 text-sm transition active:scale-95">
+            {isSetup?'パスワードを設定':'ログイン'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CSV helper ── */
+var downloadCSV = function(filename, rows){
+  var bom = '\uFEFF'; /* UTF-8 BOM for Excel */
+  var csv = rows.map(function(r){
+    return r.map(function(c){
+      var s = String(c==null?'':c);
+      if(s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0){
+        return '"'+s.replace(/"/g,'""')+'"';
+      }
+      return s;
+    }).join(',');
+  }).join('\n');
+  var blob = new Blob([bom+csv],{type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+};
+
+/* ── storage ── */
+var SK = 'shift_payroll_v1';
+var loadS = function(){try{var d=localStorage.getItem(SK);return d?JSON.parse(d):null;}catch(e){return null;}};
+var saveS = function(d){try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}};
+
+/* ── reducer ── */
+var initState = {staff:[],shifts:[],attendance:[]};
+function reducer(state, action) {
+  var ns;
+  switch(action.type) {
+    case 'ADD_STAFF': ns={staff:[].concat(state.staff,[action.payload]),shifts:state.shifts,attendance:state.attendance};break;
+    case 'UPD_STAFF': ns={staff:state.staff.map(function(s){return s.id===action.payload.id?Object.assign({},s,action.payload):s;}),shifts:state.shifts,attendance:state.attendance};break;
+    case 'DEL_STAFF': var did=action.payload;ns={staff:state.staff.filter(function(s){return s.id!==did;}),shifts:state.shifts.filter(function(s){return s.staffId!==did;}),attendance:state.attendance.filter(function(a){return a.staffId!==did;})};break;
+    case 'ADD_SHIFT': ns={staff:state.staff,shifts:[].concat(state.shifts,[action.payload]),attendance:state.attendance};break;
+    case 'UPD_SHIFT': ns={staff:state.staff,shifts:state.shifts.map(function(s){return s.id===action.payload.id?Object.assign({},s,action.payload):s;}),attendance:state.attendance};break;
+    case 'DEL_SHIFT': ns={staff:state.staff,shifts:state.shifts.filter(function(s){return s.id!==action.payload;}),attendance:state.attendance};break;
+    case 'BULK_DEL_SHIFT': ns={staff:state.staff,shifts:state.shifts.filter(function(s){return action.payload.indexOf(s.id)<0;}),attendance:state.attendance};break;
+    case 'ADD_ATT': ns={staff:state.staff,shifts:state.shifts,attendance:[].concat(state.attendance,[action.payload])};break;
+    case 'UPD_ATT': ns={staff:state.staff,shifts:state.shifts,attendance:state.attendance.map(function(a){return a.id===action.payload.id?Object.assign({},a,action.payload):a;})};break;
+    case 'DEL_ATT': ns={staff:state.staff,shifts:state.shifts,attendance:state.attendance.filter(function(a){return a.id!==action.payload;})};break;
+    case 'LOAD': return action.payload;
+    case 'RESET': ns=Object.assign({},initState);break;
+    default: return state;
+  }
+  if(action.type!=='LOAD') saveS(ns);
+  return ns;
+}
+
+/* ── demo data ── */
+function genDemo(){
+  var names=['田中太郎','佐藤花子','鈴木一郎','高橋美咲','渡辺健'];
+  var types=['fulltime','parttime','parttime','fulltime','parttime'];
+  var staffArr=names.map(function(n,i){return {id:gid(),name:n,type:types[i],monthlySalary:types[i]==='fulltime'?280000:0,hourlyRate:types[i]==='parttime'?(1100+i*50):0,transport:types[i]==='parttime'?500:0};});
+  var shiftsArr=[];var attArr=[];
+  var ym='2026-03';
+  var today=new Date();
+  var todayDate=today.getDate();
+  var maxDay=Math.min(todayDate,dim(ym));
+  staffArr.forEach(function(s){
+    for(var d=1;d<=maxDay;d++){
+      var ds=ym+'-'+String(d).padStart(2,'0');
+      var di=dowi(ds);
+      if(di===0)continue;
+      var st=s.type==='fulltime'?'09:00':(di%2===0?'10:00':'17:00');
+      var en=s.type==='fulltime'?'18:00':(di%2===0?'15:00':'22:00');
+      shiftsArr.push({id:gid(),staffId:s.id,date:ds,start:st,end:en});
+      if(d<todayDate){
+        var delay=Math.random()>0.8?15:Math.random()>0.5?5:0;
+        var ast=pt(st)+delay/60;
+        var ah=Math.floor(ast);var am=Math.round((ast-ah)*60);
+        attArr.push({id:gid(),staffId:s.id,date:ds,start:String(ah).padStart(2,'0')+':'+String(am).padStart(2,'0'),end:en,breakMin:s.type==='fulltime'?60:0,note:''});
+      }
+    }
+  });
+  return {staff:staffArr,shifts:shiftsArr,attendance:attArr};
+}
+
+/* ── UI parts ── */
+function Badge(props){
+  var colors={blue:'bg-blue-100 text-blue-700',green:'bg-green-100 text-green-700',orange:'bg-yellow-100 text-yellow-700',red:'bg-red-100 text-red-700',gray:'bg-gray-100 text-gray-600',purple:'bg-purple-100 text-purple-700'};
+  return <span className={'text-xs font-medium px-2 py-0.5 rounded-full '+(colors[props.color]||colors.gray)}>{props.children}</span>;
+}
+
+function Card(props){
+  return <div className={'bg-white rounded-xl shadow-sm border border-gray-100 '+(props.className||'')}>{props.children}</div>;
+}
+
+function Btn(props){
+  var base='font-medium rounded-xl transition active:scale-95 disabled:opacity-40';
+  var sz=props.small?'text-xs px-3 py-1.5':'text-sm px-4 py-2.5';
+  var w=props.full?'w-full':'';
+  var colors={blue:'bg-blue-600 text-white',red:'bg-red-500 text-white',gray:'bg-gray-100 text-gray-700',green:'bg-green-600 text-white',white:'bg-white text-gray-700 border border-gray-200'};
+  return <button className={base+' '+sz+' '+w+' '+(colors[props.color]||colors.blue)} onClick={props.onClick} disabled={props.disabled}>{props.children}</button>;
+}
+
+function Inp(props){
+  return (
+    <div>
+      {props.label && <label className="block text-xs text-gray-500 mb-1">{props.label}</label>}
+      <input type={props.type||'text'} value={props.value} onChange={function(e){props.onChange(e.target.value);}} placeholder={props.placeholder||''}
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"/>
+    </div>
+  );
+}
+
+function Sel(props){
+  return (
+    <div>
+      {props.label && <label className="block text-xs text-gray-500 mb-1">{props.label}</label>}
+      <select value={props.value} onChange={function(e){props.onChange(e.target.value);}}
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+        {props.options.map(function(o){return <option key={o.value} value={o.value}>{o.label}</option>;})}
+      </select>
+    </div>
+  );
+}
+
+function Modal(props){
+  if(!props.open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={props.onClose}>
+      <div className="absolute inset-0 bg-black bg-opacity-30"/>
+      <div className="relative bg-white w-full max-w-lg rounded-t-2xl p-5 pb-8 slide-up" style={{maxHeight:'90vh',overflowY:'auto'}} onClick={function(e){e.stopPropagation();}}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-gray-800">{props.title}</h3>
+          <button onClick={props.onClose} className="text-gray-400 text-xl leading-none">&times;</button>
+        </div>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+/* ── InlineNum ── */
+function InlineNum(props){
+  var ref = useState(false);
+  var editing = ref[0];
+  var setEditing = ref[1];
+  var ref2 = useState(String(props.value));
+  var tmp = ref2[0];
+  var setTmp = ref2[1];
+  var doSave = function(){
+    props.onSave(Number(tmp)||0);
+    setEditing(false);
+  };
+  if(editing){
+    return (
+      <div className="flex items-center justify-between bg-blue-50 rounded-lg px-3 py-2 border border-blue-200">
+        <span className="text-xs text-blue-600 font-medium">{props.label}</span>
+        <div className="flex items-center" style={{gap:'4px'}}>
+          <span className="text-xs text-gray-400">{props.unit}</span>
+          <input type="number" value={tmp} onChange={function(e){setTmp(e.target.value);}}
+            onBlur={doSave} onKeyDown={function(e){if(e.key==='Enter')e.target.blur();}}
+            autoFocus
+            style={{width:'7rem',textAlign:'right'}}
+            className="text-sm font-semibold text-gray-800 bg-white border border-blue-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-100 transition"
+      onClick={function(){setTmp(String(props.value));setEditing(true);}}>
+      <span className="text-xs text-gray-500">{props.label}</span>
+      <div className="flex items-center" style={{gap:'4px'}}>
+        <span className="text-sm font-semibold text-gray-800">{props.unit}{fc(props.value)}</span>
+        <span className="text-gray-300 text-xs ml-1">&#9998;</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── Forms ── */
+function StaffForm(props){
+  var s1=useState(props.initial?props.initial.name:''); var name=s1[0]; var setName=s1[1];
+  var s2=useState(props.initial?props.initial.type:'parttime'); var type=s2[0]; var setType=s2[1];
+  var s3=useState(props.initial?String(props.initial.monthlySalary):'280000'); var salary=s3[0]; var setSalary=s3[1];
+  var s4=useState(props.initial?String(props.initial.hourlyRate):'1100'); var rate=s4[0]; var setRate=s4[1];
+  var s5=useState(props.initial?String(props.initial.transport):'500'); var transport=s5[0]; var setTransport=s5[1];
+  var submit = function(){
+    if(!name.trim())return;
+    props.onSave({name:name.trim(),type:type,monthlySalary:Number(salary)||0,hourlyRate:Number(rate)||0,transport:Number(transport)||0});
+  };
+  return (
+    <div className="flex flex-col" style={{gap:'12px'}}>
+      <Inp label="氏名" value={name} onChange={setName} placeholder="山田太郎"/>
+      <Sel label="雇用形態" value={type} onChange={setType} options={[{value:'fulltime',label:'正社員'},{value:'parttime',label:'アルバイト'}]}/>
+      {type==='fulltime'?<Inp label="月給(¥)" value={salary} onChange={setSalary} type="number"/>:<Inp label="時給(¥)" value={rate} onChange={setRate} type="number"/>}
+      <Inp label="交通費/回(¥)" value={transport} onChange={setTransport} type="number"/>
+      {props.onDelete && <div className="pt-1"><Btn color="red" full onClick={function(){if(confirm('削除しますか？'))props.onDelete();}}>この登録を削除</Btn></div>}
+      <div className="flex" style={{gap:'8px'}}>
+        <Btn color="gray" onClick={props.onCancel}>キャンセル</Btn>
+        <Btn color="blue" onClick={submit} full>保存</Btn>
+      </div>
+    </div>
+  );
+}
+
+function ShiftForm(props){
+  var s1=useState(props.initial?props.initial.staffId:(props.staffList[0]?props.staffList[0].id:'')); var sid=s1[0]; var setSid=s1[1];
+  var s2=useState(props.initial?props.initial.date:(props.fixedDate||td())); var date=s2[0]; var setDate=s2[1];
+  var s3=useState(props.initial?props.initial.start:'09:00'); var start=s3[0]; var setStart=s3[1];
+  var s4=useState(props.initial?props.initial.end:'18:00'); var end=s4[0]; var setEnd=s4[1];
+  var submit=function(){if(!sid)return;props.onSave({staffId:sid,date:date,start:start,end:end});};
+  return (
+    <div className="flex flex-col" style={{gap:'12px'}}>
+      <Sel label="スタッフ" value={sid} onChange={setSid} options={props.staffList.map(function(s){return {value:s.id,label:s.name};})}/>
+      {props.fixedDate?<div><label className="block text-xs text-gray-500 mb-1">日付</label><div className="text-sm font-medium text-gray-800">{props.fixedDate} ({dow(props.fixedDate)})</div></div>:<Inp label="日付" value={date} onChange={setDate} type="date"/>}
+      <div className="grid grid-cols-2" style={{gap:'8px'}}>
+        <Inp label="開始" value={start} onChange={setStart} type="time"/>
+        <Inp label="終了" value={end} onChange={setEnd} type="time"/>
+      </div>
+      {props.onDelete && <div className="pt-1"><Btn color="red" full onClick={function(){if(confirm('削除しますか？'))props.onDelete();}}>このシフトを削除</Btn></div>}
+      <div className="flex" style={{gap:'8px'}}>
+        <Btn color="gray" onClick={props.onCancel}>キャンセル</Btn>
+        <Btn color="blue" onClick={submit} full>保存</Btn>
+      </div>
+    </div>
+  );
+}
+
+function AttForm(props){
+  var s1=useState(props.initial?props.initial.staffId:(props.fixedStaff||(props.staffList[0]?props.staffList[0].id:'')||'')); var sid=s1[0]; var setSid=s1[1];
+  var s2=useState(props.initial?props.initial.date:(props.fixedDate||td())); var date=s2[0]; var setDate=s2[1];
+  var s3=useState(props.initial?props.initial.start:'09:00'); var start=s3[0]; var setStart=s3[1];
+  var s4=useState(props.initial?props.initial.end:'18:00'); var end=s4[0]; var setEnd=s4[1];
+  var s5=useState(props.initial?String(props.initial.breakMin):'0'); var brk=s5[0]; var setBrk=s5[1];
+  var s6=useState(props.initial?props.initial.note:''); var note=s6[0]; var setNote=s6[1];
+  var submit=function(){if(!sid)return;props.onSave({staffId:sid,date:date,start:start,end:end,breakMin:Number(brk)||0,note:note});};
+  return (
+    <div className="flex flex-col" style={{gap:'12px'}}>
+      {props.fixedStaff?null:<Sel label="スタッフ" value={sid} onChange={setSid} options={props.staffList.map(function(s){return {value:s.id,label:s.name};})}/>}
+      {props.fixedDate?<div><label className="block text-xs text-gray-500 mb-1">日付</label><div className="text-sm font-medium">{props.fixedDate} ({dow(props.fixedDate)})</div></div>:<Inp label="日付" value={date} onChange={setDate} type="date"/>}
+      <div className="grid grid-cols-2" style={{gap:'8px'}}>
+        <Inp label="出勤" value={start} onChange={setStart} type="time"/>
+        <Inp label="退勤" value={end} onChange={setEnd} type="time"/>
+      </div>
+      <Inp label="休憩(分)" value={brk} onChange={setBrk} type="number"/>
+      <Inp label="メモ" value={note} onChange={setNote} placeholder="備考"/>
+      {props.onDelete && <div className="pt-1"><Btn color="red" full onClick={function(){if(confirm('削除しますか？'))props.onDelete();}}>この勤怠を削除</Btn></div>}
+      <div className="flex" style={{gap:'8px'}}>
+        <Btn color="gray" onClick={props.onCancel}>キャンセル</Btn>
+        <Btn color="blue" onClick={submit} full>保存</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ── BulkShiftForm: 一括登録 ── */
+function BulkShiftForm(props){
+  var s1=useState(props.staffList[0]?props.staffList[0].id:''); var sid=s1[0]; var setSid=s1[1];
+  var s2=useState([1,2,3,4,5]); var days=s2[0]; var setDays=s2[1]; /* 0=日..6=土 */
+  var s3=useState('09:00'); var start=s3[0]; var setStart=s3[1];
+  var s4=useState('18:00'); var end=s4[0]; var setEnd=s4[1];
+  var s5=useState(false); var overwrite=s5[0]; var setOverwrite=s5[1];
+  var dowLabels=['日','月','火','水','木','金','土'];
+  var toggleDay=function(d){
+    if(days.indexOf(d)>=0){setDays(days.filter(function(x){return x!==d;}));}
+    else{setDays([].concat(days,[d]).sort());}
+  };
+  /* preview: count how many dates will be generated */
+  var genDates=function(){
+    var result=[];
+    var total=props.daysInMonth;
+    for(var d=1;d<=total;d++){
+      var ds=props.month+'-'+String(d).padStart(2,'0');
+      var di=new Date(ds).getDay();
+      if(days.indexOf(di)>=0) result.push(ds);
+    }
+    return result;
+  };
+  var preview=genDates();
+  return (
+    <div className="flex flex-col" style={{gap:'12px'}}>
+      <Sel label="スタッフ" value={sid} onChange={setSid} options={props.staffList.map(function(s){return {value:s.id,label:s.name};})}/>
+      <div>
+        <label className="block text-xs text-gray-500 mb-2">曜日を選択</label>
+        <div className="flex" style={{gap:'6px'}}>
+          {dowLabels.map(function(l,i){
+            var active=days.indexOf(i)>=0;
+            var color=i===0?'bg-red-500 text-white':i===6?'bg-blue-500 text-white':'bg-blue-600 text-white';
+            return <button key={i} onClick={function(){toggleDay(i);}}
+              className={'flex-1 py-2 rounded-lg text-sm font-bold transition '+(active?color:'bg-gray-100 text-gray-400')}>
+              {l}
+            </button>;
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-2" style={{gap:'8px'}}>
+        <Inp label="開始時間" value={start} onChange={setStart} type="time"/>
+        <Inp label="終了時間" value={end} onChange={setEnd} type="time"/>
+      </div>
+      <div className="flex items-center" style={{gap:'8px'}}>
+        <input type="checkbox" checked={overwrite} onChange={function(){setOverwrite(!overwrite);}} id="ow" className="rounded"/>
+        <label htmlFor="ow" className="text-xs text-gray-600">既存シフトを上書き</label>
+      </div>
+      <div className="bg-gray-50 rounded-lg p-3 text-center">
+        <span className="text-sm text-gray-600">対象: </span>
+        <span className="text-lg font-bold text-blue-600">{preview.length}</span>
+        <span className="text-sm text-gray-600"> 日分</span>
+      </div>
+      <div className="flex" style={{gap:'8px'}}>
+        <Btn color="gray" onClick={props.onCancel}>キャンセル</Btn>
+        <Btn color="blue" onClick={function(){
+          if(!sid||days.length===0)return;
+          props.onSave({staffId:sid,dates:preview,start:start,end:end,overwrite:overwrite});
+        }} full disabled={days.length===0}>一括登録 ({preview.length}件)</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ── BulkDeleteShiftForm: 一括削除 ── */
+function BulkDeleteShiftForm(props){
+  var s1=useState(props.staffList[0]?props.staffList[0].id:''); var sid=s1[0]; var setSid=s1[1];
+  var targetShifts=props.monthShifts.filter(function(x){return x.staffId===sid;});
+  return (
+    <div className="flex flex-col" style={{gap:'12px'}}>
+      <Sel label="スタッフ" value={sid} onChange={setSid} options={props.staffList.map(function(s){return {value:s.id,label:s.name};})}/>
+      <div className="bg-red-50 rounded-lg p-4 text-center">
+        <div className="text-sm text-gray-600 mb-1">削除対象シフト数</div>
+        <div className="text-3xl font-bold text-red-600">{targetShifts.length}</div>
+        <div className="text-xs text-gray-400 mt-1">{props.monthLabel}</div>
+      </div>
+      {targetShifts.length>0 && (
+        <div className="bg-gray-50 rounded-lg p-3 max-h-32 overflow-y-auto">
+          <div className="text-xs text-gray-500 mb-1">対象日一覧:</div>
+          <div className="text-xs text-gray-600" style={{lineHeight:'1.6'}}>
+            {targetShifts.map(function(sh){return sh.date.slice(5)+' ('+dow(sh.date)+') '+sh.start+'〜'+sh.end;}).join('、 ')}
+          </div>
+        </div>
+      )}
+      <div className="flex" style={{gap:'8px'}}>
+        <Btn color="gray" onClick={props.onCancel}>キャンセル</Btn>
+        <Btn color="red" onClick={function(){
+          if(targetShifts.length===0) return;
+          if(confirm('本当にいいですか？\n'+props.staffList.find(function(s){return s.id===sid;}).name+'の'+props.monthLabel+'のシフト'+targetShifts.length+'件を削除します。')){
+            props.onDelete(targetShifts.map(function(sh){return sh.id;}));
+          }
+        }} full disabled={targetShifts.length===0}>一括削除 ({targetShifts.length}件)</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ══════ MAIN APP ══════ */
+function App(){
+  var r1=useReducer(reducer,initState); var state=r1[0]; var dp=r1[1];
+  var staff=state.staff; var shifts=state.shifts; var attendance=state.attendance;
+  var r2=useState(0); var tab=r2[0]; var setTab=r2[1];
+  var r3=useState(gm()); var month=r3[0]; var setMonth=r3[1];
+  var r4=useState(null); var modal=r4[0]; var setModal=r4[1];
+  var r5=useState(false); var showWelcome=r5[0]; var setShowWelcome=r5[1];
+  var r6=useState(false); var showSettings=r6[0]; var setShowSettings=r6[1];
+  var r7=useState(0); var shiftSub=r7[0]; var setShiftSub=r7[1];
+  var r8=useState(0); var attSub=r8[0]; var setAttSub=r8[1];
+  var r9=useState(''); var attStaffId=r9[0]; var setAttStaffId=r9[1];
+  var r10=useState(false); var saved=r10[0]; var setSaved=r10[1];
+  var r11=useState(0); var paySub=r11[0]; var setPaySub=r11[1];
+  var r12=useState(null); var clipboard=r12[0]; var setClipboard=r12[1];
+  /* clipboard = {staffId, start, end} or null */
+  var r13=useState(null); var selectedCell=r13[0]; var setSelectedCell=r13[1];
+  /* selectedCell = {staffId, date} — tracks which cell is "selected" for Cmd+C */
+  var longPressTimer=useRef(null);
+
+  useEffect(function(){
+    var d=loadS();
+    if(d && d.staff && d.staff.length>0){
+      dp({type:'LOAD',payload:d});
+    } else {
+      setShowWelcome(true);
+    }
+  },[]);
+
+  useEffect(function(){
+    if(staff.length>0 && !attStaffId) setAttStaffId(staff[0].id);
+  },[staff,attStaffId]);
+
+  /* PC: Cmd+C → copy, Cmd+V → paste */
+  useEffect(function(){
+    var handler = function(e){
+      if(!selectedCell) return;
+      if((e.metaKey||e.ctrlKey) && e.key==='c'){
+        var sh=shifts.find(function(x){return x.staffId===selectedCell.staffId && x.date===selectedCell.date;});
+        if(sh){
+          e.preventDefault();
+          setClipboard({start:sh.start, end:sh.end});
+        }
+      }
+      if((e.metaKey||e.ctrlKey) && e.key==='v' && clipboard){
+        e.preventDefault();
+        var sid=selectedCell.staffId; var dt=selectedCell.date;
+        var existing=shifts.find(function(x){return x.staffId===sid && x.date===dt;});
+        if(existing){
+          dp({type:'UPD_SHIFT',payload:{id:existing.id,start:clipboard.start,end:clipboard.end}});
+        } else {
+          dp({type:'ADD_SHIFT',payload:{id:gid(),staffId:sid,date:dt,start:clipboard.start,end:clipboard.end}});
+        }
+        showSavedFn();
+      }
+    };
+    document.addEventListener('keydown',handler);
+    return function(){document.removeEventListener('keydown',handler);};
+  },[selectedCell,shifts,clipboard]);
+
+  var showSavedFn=function(){setSaved(true);setTimeout(function(){setSaved(false);},1500);};
+
+  /* staff helpers */
+  var addStaff=function(d){dp({type:'ADD_STAFF',payload:Object.assign({id:gid()},d)});setModal(null);showSavedFn();};
+  var updStaff=function(id,d){dp({type:'UPD_STAFF',payload:Object.assign({id:id},d)});setModal(null);showSavedFn();};
+  var updStaffField=function(id,field,val){var p={id:id};p[field]=val;dp({type:'UPD_STAFF',payload:p});showSavedFn();};
+  var delStaff=function(id){if(confirm('削除しますか？'))dp({type:'DEL_STAFF',payload:id});};
+
+  /* shift helpers */
+  var addShift=function(d){dp({type:'ADD_SHIFT',payload:Object.assign({id:gid()},d)});setModal(null);showSavedFn();};
+  var updShift=function(id,d){dp({type:'UPD_SHIFT',payload:Object.assign({id:id},d)});setModal(null);showSavedFn();};
+  var delShift=function(id){dp({type:'DEL_SHIFT',payload:id});};
+  var bulkAddShift=function(d){
+    d.dates.forEach(function(dt){
+      var existing=shifts.find(function(x){return x.staffId===d.staffId && x.date===dt;});
+      if(existing && d.overwrite){
+        dp({type:'UPD_SHIFT',payload:{id:existing.id,start:d.start,end:d.end}});
+      } else if(!existing){
+        dp({type:'ADD_SHIFT',payload:{id:gid(),staffId:d.staffId,date:dt,start:d.start,end:d.end}});
+      }
+    });
+    setModal(null);showSavedFn();
+  };
+  var bulkDelShift=function(ids){
+    dp({type:'BULK_DEL_SHIFT',payload:ids});
+    setModal(null);showSavedFn();
+  };
+
+  /* ── CSV exports ── */
+  var exportShiftAll = function(){
+    var header=['日付','曜日','スタッフ名','雇用形態','開始','終了','時間(h)'];
+    var sorted=monthShifts.slice().sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+    var rows=[header];
+    sorted.forEach(function(sh){
+      var s=staffObj(sh.staffId);
+      if(!s) return;
+      rows.push([sh.date, dow(sh.date), s.name, s.type==='fulltime'?'正社員':'アルバイト', sh.start, sh.end, dh(sh.start,sh.end).toFixed(1)]);
+    });
+    downloadCSV('シフト全体_'+month+'.csv', rows);
+  };
+
+  var exportShiftStaff = function(sid){
+    var s=staffObj(sid);
+    if(!s) return;
+    var header=['日付','曜日','開始','終了','時間(h)'];
+    var sorted=monthShifts.filter(function(x){return x.staffId===sid;}).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+    var rows=[header];
+    var totalH=0;
+    sorted.forEach(function(sh){
+      var h=dh(sh.start,sh.end);
+      totalH+=h;
+      rows.push([sh.date, dow(sh.date), sh.start, sh.end, h.toFixed(1)]);
+    });
+    rows.push([]);
+    rows.push(['合計','',sorted.length+'日','',totalH.toFixed(1)]);
+    downloadCSV('シフト_'+s.name+'_'+month+'.csv', rows);
+  };
+
+  var exportPayrollStaff = function(sid){
+    var s=staffObj(sid);
+    if(!s) return;
+    var sShifts=monthShifts.filter(function(x){return x.staffId===sid;}).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+    var sAtt=attendance.filter(function(a){return a.staffId===sid && a.date.startsWith(month);}).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+    var header=['給与明細 — '+month.replace('-','年')+'月'];
+    var rows=[header];
+    rows.push(['氏名', s.name]);
+    rows.push(['雇用形態', s.type==='fulltime'?'正社員':'アルバイト']);
+    if(s.type==='fulltime') rows.push(['月給','¥'+fc(s.monthlySalary)]);
+    else rows.push(['時給','¥'+fc(s.hourlyRate)]);
+    rows.push(['交通費/回','¥'+fc(s.transport)]);
+    rows.push([]);
+
+    /* 勤怠明細 */
+    rows.push(['【勤怠明細】']);
+    rows.push(['日付','曜日','シフト開始','シフト終了','実出勤','実退勤','休憩(分)','実働(h)','備考']);
+    var totalActualH=0;
+    var days2=dim(month);
+    for(var d=1;d<=days2;d++){
+      var ds=month+'-'+String(d).padStart(2,'0');
+      var shift=sShifts.find(function(x){return x.date===ds;});
+      var att=sAtt.find(function(x){return x.date===ds;});
+      if(!shift && !att) continue;
+      var actH=att?(function(){var h=dh(att.start,att.end)-att.breakMin/60;return h>0?h:0;})():0;
+      totalActualH+=actH;
+      rows.push([
+        ds, dow(ds),
+        shift?shift.start:'', shift?shift.end:'',
+        att?att.start:'', att?att.end:'',
+        att?att.breakMin:'',
+        actH>0?actH.toFixed(1):'',
+        att?att.note:''
+      ]);
+    }
+    rows.push([]);
+
+    /* 支給計算 */
+    rows.push(['【支給計算】']);
+    var budgetH=sShifts.reduce(function(sum,x){return sum+dh(x.start,x.end);},0);
+    var budgetBase=s.type==='fulltime'?s.monthlySalary:Math.round(budgetH*s.hourlyRate);
+    var budgetTrans=sShifts.length*s.transport;
+    var actualBase=s.type==='fulltime'?s.monthlySalary:Math.round(totalActualH*s.hourlyRate);
+    var actualTrans=sAtt.length*s.transport;
+    rows.push(['','予算（シフト）','実績（勤怠）']);
+    rows.push(['出勤日数', sShifts.length+'日', sAtt.length+'日']);
+    rows.push(['勤務時間', budgetH.toFixed(1)+'h', totalActualH.toFixed(1)+'h']);
+    rows.push(['基本給','¥'+fc(budgetBase),'¥'+fc(actualBase)]);
+    rows.push(['交通費','¥'+fc(budgetTrans),'¥'+fc(actualTrans)]);
+    rows.push(['合計','¥'+fc(budgetBase+budgetTrans),'¥'+fc(actualBase+actualTrans)]);
+
+    downloadCSV('給与明細_'+s.name+'_'+month+'.csv', rows);
+  };
+
+  /* att helpers */
+  var addAtt=function(d){dp({type:'ADD_ATT',payload:Object.assign({id:gid()},d)});setModal(null);showSavedFn();};
+  var updAtt=function(id,d){dp({type:'UPD_ATT',payload:Object.assign({id:id},d)});setModal(null);showSavedFn();};
+  var delAtt=function(id){dp({type:'DEL_ATT',payload:id});};
+
+  var staffName=function(id){var f=staff.find(function(s){return s.id===id;});return f?f.name:'?';};
+  var staffObj=function(id){return staff.find(function(s){return s.id===id;});};
+
+  var monthShifts=shifts.filter(function(s){return s.date.startsWith(month);});
+  var monthAtt=attendance.filter(function(a){return a.date.startsWith(month);});
+  var todayStr=td();
+  var todayShifts=shifts.filter(function(s){return s.date===todayStr;});
+  var todayAtt=attendance.filter(function(a){return a.date===todayStr;});
+
+  /* ── Welcome ── */
+  if(showWelcome){
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center fade-in">
+          <div className="text-5xl mb-4">📋</div>
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">シフト・給与管理</h1>
+          <p className="text-gray-500 text-sm mb-6">飲食店向けスタッフ管理システム</p>
+          <div className="flex flex-col" style={{gap:'10px'}}>
+            <Btn color="blue" full onClick={function(){var d=genDemo();dp({type:'LOAD',payload:d});saveS(d);setShowWelcome(false);}}>デモデータで始める</Btn>
+            <Btn color="white" full onClick={function(){setShowWelcome(false);}}>空の状態で始める</Btn>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Settings ── */
+  var settingsUI = (
+    <Modal open={showSettings} onClose={function(){setShowSettings(false);}} title="設定">
+      <div className="flex flex-col" style={{gap:'12px'}}>
+        <Btn color="blue" full onClick={function(){
+          var blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+          var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='shift-data.json';a.click();
+        }}>データをエクスポート (JSON)</Btn>
+        <Btn color="green" full onClick={function(){
+          var inp=document.createElement('input');inp.type='file';inp.accept='.json';
+          inp.onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){try{var d=JSON.parse(ev.target.result);dp({type:'LOAD',payload:d});saveS(d);alert('インポート完了');}catch(er){alert('ファイル形式エラー');}};r.readAsText(f);};
+          inp.click();
+        }}>データをインポート</Btn>
+        <Btn color="red" full onClick={function(){if(confirm('全データを削除しますか？')){dp({type:'RESET'});localStorage.removeItem(SK);}}}>データリセット</Btn>
+        <div className="border-t border-gray-200 pt-3 mt-1">
+          <div className="text-xs text-gray-400 mb-2">アカウント</div>
+          <div className="flex flex-col" style={{gap:'8px'}}>
+            <Btn color="gray" full onClick={function(){
+              var np=prompt('新しいパスワード（4文字以上）:');
+              if(!np||np.length<4){if(np!==null)alert('4文字以上で入力してください');return;}
+              var np2=prompt('確認のためもう一度入力:');
+              if(np!==np2){alert('一致しません');return;}
+              setStoredHash(simpleHash(np));
+              alert('パスワードを変更しました');
+            }}>パスワード変更</Btn>
+            <Btn color="red" full onClick={function(){
+              sessionStorage.removeItem(AUTH_SESSION);
+              location.reload();
+            }}>ログアウト</Btn>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+
+  /* ── month selector ── */
+  var renderMonthSel = function(){
+    return (
+      <div className="flex items-center justify-between px-4 py-2">
+        <button onClick={function(){var p=month.split('-').map(Number);var y=p[0];var m=p[1];var nm=m===1?(y-1)+'-12':y+'-'+String(m-1).padStart(2,'0');setMonth(nm);}} className="text-blue-600 text-lg font-bold">&lt;</button>
+        <span className="font-bold text-gray-700">{month.replace('-','年')}月</span>
+        <button onClick={function(){var p=month.split('-').map(Number);var y=p[0];var m=p[1];var nm=m===12?(y+1)+'-01':y+'-'+String(m+1).padStart(2,'0');setMonth(nm);}} className="text-blue-600 text-lg font-bold">&gt;</button>
+      </div>
+    );
+  };
+
+  /* ══ TAB 0: Dashboard ══ */
+  var renderDash = function(){
+    var todayJP = todayStr.replace(/(\d{4})-(\d{2})-(\d{2})/,'$1年$2月$3日') + ' (' + dow(todayStr) + ')';
+    var totalStaff=staff.length;
+    var ft=staff.filter(function(s){return s.type==='fulltime';}).length;
+    var pt2=staff.filter(function(s){return s.type==='parttime';}).length;
+    var mDays=dim(month);
+    var passedDays=month===gm()?new Date().getDate():mDays;
+    var totalShifts=monthShifts.length;
+    var totalAtt=monthAtt.length;
+    var attRate=totalShifts>0?Math.round(totalAtt/totalShifts*100):0;
+    return (
+      <div className="p-4 flex flex-col fade-in" style={{gap:'16px'}}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-800">ダッシュボード</h2>
+          <button onClick={function(){setShowSettings(true);}} className="text-gray-400 text-xl">&#9881;</button>
+        </div>
+        <Card className="p-4">
+          <div className="flex items-center mb-3" style={{gap:'8px'}}>
+            <span className="text-lg">📅</span>
+            <h3 className="font-bold text-gray-700">本日 — {todayJP}</h3>
+          </div>
+          <div className="grid grid-cols-2" style={{gap:'8px'}}>
+            <div className="bg-blue-50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-blue-600">{todayShifts.length}</div>
+              <div className="text-xs text-gray-500">出勤予定</div>
+            </div>
+            <div className="bg-green-50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-green-600">{todayAtt.length}</div>
+              <div className="text-xs text-gray-500">出勤済み</div>
+            </div>
+          </div>
+          {todayShifts.length>0 && (
+            <div className="mt-3">
+              <div className="text-xs text-gray-500 mb-1">本日のシフト</div>
+              {todayShifts.map(function(s){
+                var att=todayAtt.find(function(a){return a.staffId===s.staffId;});
+                return <div key={s.id} className="flex items-center justify-between text-sm py-1">
+                  <span className="font-medium">{staffName(s.staffId)}</span>
+                  <span className="text-gray-500">{s.start}〜{s.end} {att?<Badge color="green">出勤済</Badge>:<Badge color="orange">未出勤</Badge>}</span>
+                </div>;
+              })}
+            </div>
+          )}
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center mb-3" style={{gap:'8px'}}>
+            <span className="text-lg">📊</span>
+            <h3 className="font-bold text-gray-700">月間レポート — {month.replace('-','年')}月</h3>
+          </div>
+          {renderMonthSel()}
+          {/* スタッフ数 */}
+          <div className="grid grid-cols-2" style={{gap:'8px'}}>
+            <div className="bg-purple-50 rounded-lg p-3 text-center">
+              <div className="text-xl font-bold text-purple-600">{totalStaff}</div>
+              <div className="text-xs text-gray-500">スタッフ</div>
+              <div className="text-xs text-gray-400">正{ft} / バ{pt2}</div>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-3 text-center">
+              <div className="text-xl font-bold text-blue-600">{totalShifts}</div>
+              <div className="text-xs text-gray-500">シフト数</div>
+            </div>
+          </div>
+          {/* 予算支給額 */}
+          {(function(){
+            var budgetPay=0; var budgetTrans=0;
+            staff.forEach(function(s){
+              var ss=monthShifts.filter(function(x){return x.staffId===s.id;});
+              var h=ss.reduce(function(sum,x){return sum+dh(x.start,x.end);},0);
+              budgetPay+=s.type==='fulltime'?s.monthlySalary:Math.round(h*s.hourlyRate);
+              budgetTrans+=ss.length*s.transport;
+            });
+            return (
+              <div className="mt-3">
+                <div className="text-xs text-gray-500 mb-2">支給予定（予算）</div>
+                <div className="grid grid-cols-3" style={{gap:'8px'}}>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-blue-600">¥{fc(budgetPay)}</div>
+                    <div className="text-xs text-gray-500">基本給</div>
+                  </div>
+                  <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-yellow-600">¥{fc(budgetTrans)}</div>
+                    <div className="text-xs text-gray-500">交通費</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-green-700">¥{fc(budgetPay+budgetTrans)}</div>
+                    <div className="text-xs text-gray-500">合計</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+          {/* 進捗 */}
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-gray-500 mb-1"><span>月間進捗</span><span>{passedDays}/{mDays}日</span></div>
+            <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-blue-500 rounded-full h-2 transition-all" style={{width:String(passedDays/mDays*100)+'%'}}/></div>
+          </div>
+        </Card>
+      </div>
+    );
+  };
+
+  /* ══ TAB 1: Staff ══ */
+  var renderStaff = function(){
+    return (
+      <div className="p-4 flex flex-col fade-in" style={{gap:'12px'}}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-800">スタッフ ({staff.length})</h2>
+          <Btn color="blue" small onClick={function(){setModal({type:'addStaff'});}}>+ 追加</Btn>
+        </div>
+        {staff.length===0 && <div className="text-center text-gray-400 py-8">スタッフを登録してください</div>}
+        {staff.map(function(s){
+          return (
+            <Card key={s.id}>
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-gray-800">{s.name}</span>
+                  <span className="ml-2"><Badge color={s.type==='fulltime'?'blue':'orange'}>{s.type==='fulltime'?'正社員':'アルバイト'}</Badge></span>
+                </div>
+                <div className="flex" style={{gap:'6px'}}>
+                  <button className="text-gray-400 text-sm" onClick={function(){setModal({type:'editStaff',data:s});}}>編集</button>
+                  <button className="text-red-400 text-sm" onClick={function(){delStaff(s.id);}}>削除</button>
+                </div>
+              </div>
+              <div className="px-4 pb-4 flex flex-col" style={{gap:'6px'}}>
+                {s.type==='fulltime'?(
+                  <InlineNum label="月給" value={s.monthlySalary} unit="¥" onSave={function(v){updStaffField(s.id,'monthlySalary',v);}}/>
+                ):(
+                  <InlineNum label="時給" value={s.hourlyRate} unit="¥" onSave={function(v){updStaffField(s.id,'hourlyRate',v);}}/>
+                )}
+                <InlineNum label="交通費 / 回" value={s.transport} unit="¥" onSave={function(v){updStaffField(s.id,'transport',v);}}/>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+
+  /* ══ TAB 2: Shifts (Matrix) ══ */
+  var renderShifts = function(){
+    var days=dim(month);
+    var dayNums=[];
+    for(var d=1;d<=days;d++) dayNums.push(d);
+
+    /* cell width */
+    var cw=38;
+    var nameW=64;
+
+    /* mobile: long press → copy */
+    var onCellTouchStart = function(shift, staffId){
+      if(!shift) return;
+      var sh=shift;
+      longPressTimer.current = setTimeout(function(){
+        setClipboard({start:sh.start, end:sh.end});
+        setSelectedCell({staffId:staffId, date:sh.date});
+        longPressTimer.current = null;
+      }, 500);
+    };
+    var onCellTouchEnd = function(){
+      if(longPressTimer.current){ clearTimeout(longPressTimer.current); longPressTimer.current=null; }
+    };
+
+    /* click: select cell; double-click same cell → edit modal */
+    var onCellClick = function(shift, staffId, date){
+      var isSame=selectedCell && selectedCell.staffId===staffId && selectedCell.date===date;
+      if(isSame && shift){
+        setModal({type:'editShift',data:shift});
+      } else if(isSame && !shift){
+        setModal({type:'addShiftDate',date:date});
+      } else {
+        setSelectedCell({staffId:staffId, date:date});
+      }
+    };
+
+    return (
+      <div className="p-3 flex flex-col fade-in" style={{gap:'10px'}}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-800">シフト表</h2>
+          <div className="flex" style={{gap:'6px'}}>
+            <Btn color="red" small onClick={function(){setModal({type:'bulkDeleteShift'});}}>一括削除</Btn>
+            <Btn color="green" small onClick={function(){setModal({type:'bulkShift'});}}>一括設定</Btn>
+            <Btn color="blue" small onClick={function(){setModal({type:'addShift'});}}>+ 追加</Btn>
+          </div>
+        </div>
+        {renderMonthSel()}
+
+        {staff.length===0 && <div className="text-center text-gray-400 py-8">スタッフを登録してください</div>}
+
+        {staff.length>0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+              <table style={{borderCollapse:'collapse',minWidth:String(nameW+days*cw)+'px',width:'100%'}}>
+                <thead>
+                  <tr style={{background:'#f9fafb'}}>
+                    <th style={{position:'sticky',left:0,zIndex:2,background:'#f9fafb',width:String(nameW)+'px',minWidth:String(nameW)+'px',padding:'4px 6px',borderBottom:'1px solid #e5e7eb',borderRight:'1px solid #e5e7eb'}}>
+                      <span className="text-xs font-bold text-gray-500">Staff</span>
+                    </th>
+                    {dayNums.map(function(d2){
+                      var ds=month+'-'+String(d2).padStart(2,'0');
+                      var di=dowi(ds);
+                      var isSun=di===0;var isSat=di===6;
+                      var isToday=ds===todayStr;
+                      var bgCol=isToday?'#fef9c3':isSun?'#fef2f2':isSat?'#eff6ff':'transparent';
+                      return (
+                        <th key={d2} style={{width:String(cw)+'px',minWidth:String(cw)+'px',padding:'2px 0',borderBottom:'1px solid #e5e7eb',background:bgCol,textAlign:'center'}}>
+                          <div className={'text-xs font-bold '+(isSun?'text-red-500':isSat?'text-blue-500':'text-gray-600')}>{d2}</div>
+                          <div className={'text-xs '+(isSun?'text-red-400':isSat?'text-blue-400':'text-gray-400')} style={{fontSize:'9px'}}>{dow(ds)}</div>
+                        </th>
+                      );
+                    })}
+                    <th style={{width:'40px',minWidth:'40px',padding:'4px',borderBottom:'1px solid #e5e7eb',borderLeft:'1px solid #e5e7eb',background:'#f9fafb',textAlign:'center'}}>
+                      <span className="text-xs font-bold text-gray-500">計</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staff.map(function(s){
+                    var staffShifts=monthShifts.filter(function(x){return x.staffId===s.id;});
+                    var cnt=staffShifts.length;
+                    return (
+                      <tr key={s.id} style={{borderBottom:'1px solid #f3f4f6'}}>
+                        <td style={{position:'sticky',left:0,zIndex:1,background:'#fff',padding:'4px 6px',borderRight:'1px solid #e5e7eb',whiteSpace:'nowrap'}}>
+                          <div className="text-xs font-bold text-gray-700" style={{maxWidth:String(nameW-12)+'px',overflow:'hidden',textOverflow:'ellipsis'}}>{s.name}</div>
+                          <div style={{fontSize:'9px'}} className={s.type==='fulltime'?'text-blue-500':'text-yellow-600'}>{s.type==='fulltime'?'社':'ア'}</div>
+                        </td>
+                        {dayNums.map(function(d2){
+                          var ds=month+'-'+String(d2).padStart(2,'0');
+                          var di=dowi(ds);
+                          var isSun=di===0;var isSat=di===6;
+                          var isToday=ds===todayStr;
+                          var shift=staffShifts.find(function(x){return x.date===ds;});
+                          var bgCol=isToday?'#fef9c3':isSun?'#fef2f2':isSat?'#eff6ff':'transparent';
+                          var isSelected=selectedCell && selectedCell.staffId===s.id && selectedCell.date===ds;
+                          var sid=s.id;
+                          return (
+                            <td key={d2} style={{textAlign:'center',padding:'3px 1px',background:isSelected?'#dbeafe':bgCol,cursor:'pointer',verticalAlign:'middle',outline:isSelected?'2px solid #3b82f6':'none',outlineOffset:'-1px'}}
+                              onClick={function(){onCellClick(shift,sid,ds);}}
+                              onTouchStart={function(){onCellTouchStart(shift,sid);}}
+                              onTouchEnd={onCellTouchEnd}
+                              onTouchMove={onCellTouchEnd}>
+                              {shift?(
+                                <div>
+                                  <div style={{fontSize:'8px',lineHeight:'1.1'}} className="text-gray-700 font-medium">{shift.start}</div>
+                                  <div style={{fontSize:'8px',lineHeight:'1.1'}} className="text-gray-500">{shift.end}</div>
+                                </div>
+                              ):(
+                                <span className="text-gray-200" style={{fontSize:'10px'}}>-</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td style={{textAlign:'center',padding:'4px',borderLeft:'1px solid #e5e7eb',background:'#f9fafb'}}>
+                          <span className="text-xs font-bold text-blue-600">{cnt}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {/* summary row */}
+                  <tr style={{background:'#f0f9ff',borderTop:'2px solid #e5e7eb'}}>
+                    <td style={{position:'sticky',left:0,zIndex:1,background:'#f0f9ff',padding:'4px 6px',borderRight:'1px solid #e5e7eb'}}>
+                      <span className="text-xs font-bold text-gray-600">人員</span>
+                    </td>
+                    {dayNums.map(function(d2){
+                      var ds=month+'-'+String(d2).padStart(2,'0');
+                      var cnt=monthShifts.filter(function(x){return x.date===ds;}).length;
+                      var isToday=ds===todayStr;
+                      var di=dowi(ds);
+                      var bgCol=isToday?'#fef08a':di===0?'#fecaca':di===6?'#bfdbfe':'#e0f2fe';
+                      return (
+                        <td key={d2} style={{textAlign:'center',padding:'4px 1px',background:bgCol}}>
+                          <span className={'text-xs font-bold '+(cnt===0?'text-gray-300':'text-blue-700')}>{cnt}</span>
+                        </td>
+                      );
+                    })}
+                    <td style={{textAlign:'center',padding:'4px',borderLeft:'1px solid #e5e7eb',background:'#dbeafe'}}>
+                      <span className="text-xs font-bold text-blue-800">{monthShifts.length}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* CSV export */}
+        {staff.length>0 && (
+          <Card className="p-3">
+            <div className="text-xs text-gray-500 mb-2 font-medium">CSV出力</div>
+            <div className="flex flex-wrap" style={{gap:'6px'}}>
+              <button onClick={exportShiftAll} className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-200 transition">全体シフト CSV</button>
+              {staff.map(function(s){
+                return <button key={s.id} onClick={function(){exportShiftStaff(s.id);}} className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100 transition">{s.name}</button>;
+              })}
+            </div>
+          </Card>
+        )}
+
+        {/* legend */}
+        <div className="flex items-center justify-center text-xs text-gray-400" style={{gap:'8px'}}>
+          <span className="bg-yellow-100 px-1 rounded">今日</span>
+          <span className="bg-red-50 px-1 rounded">日</span>
+          <span className="bg-blue-50 px-1 rounded">土</span>
+          <span>|</span>
+          <span>⌘C コピー / ⌘V ペースト</span>
+        </div>
+      </div>
+    );
+  };
+
+  /* ══ TAB 3: Attendance ══ */
+  var renderAtt = function(){
+    var days=dim(month);
+    var curStaff=staffObj(attStaffId);
+
+    /* approve: create att from shift as-is */
+    var approveDay = function(staffId, shift){
+      var brk=(staffObj(staffId)||{}).type==='fulltime'?60:0;
+      dp({type:'ADD_ATT',payload:{id:gid(),staffId:staffId,date:shift.date,start:shift.start,end:shift.end,breakMin:brk,note:''}});
+      showSavedFn();
+    };
+    /* approve all unapproved shifts at once */
+    var approveAll = function(){
+      var staffShifts=monthShifts.filter(function(x){return x.staffId===attStaffId;});
+      var count=0;
+      staffShifts.forEach(function(sh){
+        var existing=attendance.find(function(a){return a.staffId===attStaffId && a.date===sh.date;});
+        if(!existing){
+          var brk=(curStaff||{}).type==='fulltime'?60:0;
+          dp({type:'ADD_ATT',payload:{id:gid(),staffId:attStaffId,date:sh.date,start:sh.start,end:sh.end,breakMin:brk,note:''}});
+          count++;
+        }
+      });
+      if(count>0) showSavedFn();
+    };
+
+    var renderInput = function(){
+      var staffShifts=monthShifts.filter(function(x){return x.staffId===attStaffId;});
+      var unapproved=staffShifts.filter(function(sh){
+        return !attendance.find(function(a){return a.staffId===attStaffId && a.date===sh.date;});
+      }).length;
+
+      return (
+        <div className="flex flex-col" style={{gap:'10px'}}>
+          {/* staff tabs */}
+          <div className="flex overflow-x-auto pb-1" style={{gap:'6px'}}>
+            {staff.map(function(s){
+              return <button key={s.id} onClick={function(){setAttStaffId(s.id);}}
+                className={'flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition '+(attStaffId===s.id?'bg-blue-600 text-white':'bg-gray-100 text-gray-600')}>
+                {s.name}
+              </button>;
+            })}
+          </div>
+          {curStaff && (
+            <Card className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-bold text-gray-700">{curStaff.name} — {month.replace('-','年')}月</div>
+                {unapproved>0 && (
+                  <button onClick={approveAll} className="text-xs bg-green-600 text-white px-3 py-1 rounded-lg font-medium">
+                    全承認 ({unapproved}件)
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col" style={{gap:'2px'}}>
+                {Array.from({length:days},function(_,i){return i+1;}).map(function(d2){
+                  var ds=month+'-'+String(d2).padStart(2,'0');
+                  var di=dowi(ds);
+                  var isSun=di===0;var isSat=di===6;
+                  var shift=shifts.find(function(x){return x.staffId===attStaffId && x.date===ds;});
+                  var att=attendance.find(function(x){return x.staffId===attStaffId && x.date===ds;});
+
+                  /* status */
+                  var status='none'; /* no shift */
+                  if(att && att.note==='欠勤') status='absent';
+                  else if(att) status='approved';
+                  else if(shift) status='pending';
+
+                  var rowBg=isSun?'bg-red-50':isSat?'bg-blue-50':status==='approved'?'bg-green-50':status==='absent'?'bg-gray-100':'';
+
+                  return (
+                    <div key={d2} className={'flex items-center justify-between py-1.5 px-2 rounded-lg '+rowBg}>
+                      {/* date */}
+                      <div className="flex items-center" style={{gap:'6px',minWidth:'42px'}}>
+                        <span className={'text-xs font-bold w-5 text-center '+(isSun?'text-red-500':isSat?'text-blue-500':'text-gray-700')}>{d2}</span>
+                        <span className={'text-xs '+(isSun?'text-red-400':isSat?'text-blue-400':'text-gray-400')} style={{fontSize:'10px'}}>{dow(ds)}</span>
+                      </div>
+                      {/* shift time */}
+                      <div className="flex-1 text-center">
+                        {shift?(
+                          <span className={'text-xs '+(status==='approved'?'text-green-700 font-medium':status==='absent'?'text-gray-400 line-through':'text-gray-600')}>
+                            {att?att.start+'〜'+att.end:shift.start+'〜'+shift.end}
+                          </span>
+                        ):(
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </div>
+                      {/* action buttons */}
+                      <div className="flex items-center" style={{gap:'4px',minWidth:'80px',justifyContent:'flex-end'}}>
+                        {status==='approved' && (
+                          <div className="flex items-center" style={{gap:'4px'}}>
+                            <Badge color="green">承認済</Badge>
+                            <button onClick={function(){setModal({type:'editAtt',data:att});}} className="text-xs text-blue-500 font-medium">編集</button>
+                          </div>
+                        )}
+                        {status==='absent' && (
+                          <div className="flex items-center" style={{gap:'4px'}}>
+                            <Badge color="red">欠勤</Badge>
+                            <button onClick={function(){setModal({type:'editAtt',data:att});}} className="text-xs text-blue-500 font-medium">編集</button>
+                          </div>
+                        )}
+                        {status==='pending' && (
+                          <div className="flex items-center" style={{gap:'4px'}}>
+                            <button onClick={function(){approveDay(attStaffId,shift);}} className="text-xs bg-green-500 text-white px-2 py-0.5 rounded font-medium">承認</button>
+                            <button onClick={function(){setModal({type:'editAttFromShift',staffId:attStaffId,date:ds,shift:shift});}} className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded font-medium">編集</button>
+                          </div>
+                        )}
+                        {status==='none' && !shift && (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+        </div>
+      );
+    };
+
+    var renderSummary = function(){
+      return (
+        <div className="flex flex-col" style={{gap:'10px'}}>
+          {staff.map(function(s){
+            var sShifts=monthShifts.filter(function(x){return x.staffId===s.id;});
+            var sAtt=monthAtt.filter(function(x){return x.staffId===s.id;});
+            var totalH=sAtt.reduce(function(sum,a){var h=dh(a.start,a.end)-a.breakMin/60;return sum+(h>0?h:0);},0);
+            var shiftH=sShifts.reduce(function(sum,x){return sum+dh(x.start,x.end);},0);
+            var rate=sShifts.length>0?Math.round(sAtt.length/sShifts.length*100):0;
+            return (
+              <Card key={s.id} className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-gray-800">{s.name}</span>
+                  <Badge color={s.type==='fulltime'?'blue':'orange'}>{s.type==='fulltime'?'正社員':'アルバイト'}</Badge>
+                </div>
+                <div className="grid grid-cols-3" style={{gap:'8px'}}>
+                  <div className="bg-blue-50 rounded-lg p-2 text-center">
+                    <div className="text-lg font-bold text-blue-600">{sAtt.length}</div>
+                    <div className="text-xs text-gray-500">出勤日数</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-2 text-center">
+                    <div className="text-lg font-bold text-green-600">{totalH.toFixed(1)}h</div>
+                    <div className="text-xs text-gray-500">実働時間</div>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-2 text-center">
+                    <div className="text-lg font-bold text-purple-600">{rate}%</div>
+                    <div className="text-xs text-gray-500">出勤率</div>
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-gray-400">予定: {sShifts.length}日 / {shiftH.toFixed(1)}h → 実績: {sAtt.length}日 / {totalH.toFixed(1)}h</div>
+                <div className="mt-1 w-full bg-gray-200 rounded-full h-1.5"><div className="bg-green-500 rounded-full h-1.5" style={{width:String(rate)+'%'}}/></div>
+              </Card>
+            );
+          })}
+        </div>
+      );
+    };
+
+    return (
+      <div className="p-4 flex flex-col fade-in" style={{gap:'12px'}}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-800">勤怠</h2>
+          <Btn color="blue" small onClick={function(){setModal({type:'addAtt'});}}>+ 追加</Btn>
+        </div>
+        {renderMonthSel()}
+        <div className="flex bg-gray-100 rounded-lg p-1" style={{gap:'4px'}}>
+          {['勤怠入力','実働集計'].map(function(l,i){
+            return <button key={i} onClick={function(){setAttSub(i);}} className={'flex-1 text-xs font-medium py-2 rounded-lg transition '+(attSub===i?'bg-white shadow text-blue-600':'text-gray-500')}>{l}</button>;
+          })}
+        </div>
+        {attSub===0?renderInput():renderSummary()}
+      </div>
+    );
+  };
+
+  /* ══ TAB 4: Payroll ══ */
+
+  var renderPayroll = function(){
+    /* calc helper per staff */
+    var calcStaff = function(s){
+      /* 予算 = シフトベース */
+      var sShifts=monthShifts.filter(function(x){return x.staffId===s.id;});
+      var budgetH=sShifts.reduce(function(sum,x){return sum+dh(x.start,x.end);},0);
+      var budgetBase=0;
+      if(s.type==='fulltime'){budgetBase=s.monthlySalary;}
+      else{budgetBase=Math.round(budgetH*s.hourlyRate);}
+      var budgetTransport=sShifts.length*s.transport;
+      var budgetTotal=budgetBase+budgetTransport;
+
+      /* 実績 = 勤怠ベース */
+      var sAtt=monthAtt.filter(function(a){return a.staffId===s.id;});
+      var actualH=sAtt.reduce(function(sum,a){var h=dh(a.start,a.end)-a.breakMin/60;return sum+(h>0?h:0);},0);
+      var actualBase=0;
+      if(s.type==='fulltime'){actualBase=s.monthlySalary;}
+      else{actualBase=Math.round(actualH*s.hourlyRate);}
+      var actualTransport=sAtt.length*s.transport;
+      var actualTotal=actualBase+actualTransport;
+
+      return {
+        sShifts:sShifts, sAtt:sAtt,
+        budgetH:budgetH, budgetBase:budgetBase, budgetTransport:budgetTransport, budgetTotal:budgetTotal,
+        actualH:actualH, actualBase:actualBase, actualTransport:actualTransport, actualTotal:actualTotal
+      };
+    };
+
+    /* totals */
+    var grandBudget=0; var grandActual=0;
+    var grandBudgetBase=0; var grandBudgetTrans=0;
+    var grandActualBase=0; var grandActualTrans=0;
+    staff.forEach(function(s){
+      var c=calcStaff(s);
+      grandBudget+=c.budgetTotal; grandActual+=c.actualTotal;
+      grandBudgetBase+=c.budgetBase; grandBudgetTrans+=c.budgetTransport;
+      grandActualBase+=c.actualBase; grandActualTrans+=c.actualTransport;
+    });
+
+    return (
+      <div className="p-4 flex flex-col fade-in" style={{gap:'12px'}}>
+        <h2 className="text-xl font-bold text-gray-800">給与計算</h2>
+        {renderMonthSel()}
+
+        {/* sub tabs: 予算 / 実績 / 明細 */}
+        <div className="flex bg-gray-100 rounded-lg p-1" style={{gap:'4px'}}>
+          {['予算（シフト）','実績（勤怠）','給与明細'].map(function(l,i){
+            var activeColor=i===0?'text-blue-600':i===1?'text-green-600':'text-purple-600';
+            return <button key={i} onClick={function(){setPaySub(i);}} className={'flex-1 text-xs font-medium py-2 rounded-lg transition '+(paySub===i?'bg-white shadow '+activeColor:'text-gray-500')}>{l}</button>;
+          })}
+        </div>
+
+        {staff.length===0 && <div className="text-center text-gray-400 py-8">スタッフを登録してください</div>}
+
+        {/* ── 予算/実績 tabs (paySub 0,1) ── */}
+        {paySub<2 && staff.map(function(s){
+          var c=calcStaff(s);
+          var isBudget=paySub===0;
+          var baseAmt=isBudget?c.budgetBase:c.actualBase;
+          var transAmt=isBudget?c.budgetTransport:c.actualTransport;
+          var totalAmt=isBudget?c.budgetTotal:c.actualTotal;
+          var hours=isBudget?c.budgetH:c.actualH;
+          var days2=isBudget?c.sShifts.length:c.sAtt.length;
+          var diff=c.actualTotal-c.budgetTotal;
+          var accentColor=isBudget?'text-blue-600':'text-green-600';
+
+          return (
+            <Card key={s.id} className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <span className="font-bold text-gray-800">{s.name}</span>
+                  <span className="ml-2"><Badge color={s.type==='fulltime'?'blue':'orange'}>{s.type==='fulltime'?'正社員':'アルバイト'}</Badge></span>
+                </div>
+                <span className="text-xs text-gray-400">{days2}日 / {hours.toFixed(1)}h</span>
+              </div>
+              {/* 支給 / 交通費 分離表示 */}
+              <div className="grid grid-cols-3" style={{gap:'6px'}}>
+                <div className={(isBudget?'bg-blue-50':'bg-green-50')+' rounded-lg p-2 text-center'}>
+                  <div className={'text-sm font-bold '+(isBudget?'text-blue-600':'text-green-600')}>¥{fc(baseAmt)}</div>
+                  <div className="text-xs text-gray-500">支給</div>
+                  {s.type==='parttime' && <div className="text-xs text-gray-400" style={{fontSize:'9px'}}>¥{fc(s.hourlyRate)}×{hours.toFixed(1)}h</div>}
+                </div>
+                <div className="bg-yellow-50 rounded-lg p-2 text-center">
+                  <div className="text-sm font-bold text-yellow-600">¥{fc(transAmt)}</div>
+                  <div className="text-xs text-gray-500">交通費</div>
+                  <div className="text-xs text-gray-400" style={{fontSize:'9px'}}>¥{fc(s.transport)}×{days2}日</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2 text-center border border-gray-200">
+                  <div className={'text-sm font-bold '+accentColor}>¥{fc(totalAmt)}</div>
+                  <div className="text-xs text-gray-500">合計</div>
+                </div>
+              </div>
+              {/* comparison */}
+              {!isBudget && c.budgetTotal>0 && (
+                <div className="flex justify-between text-xs mt-2">
+                  <span className="text-gray-400">予算比</span>
+                  <span className={diff>0?'text-red-500 font-medium':diff<0?'text-green-600 font-medium':'text-gray-400'}>
+                    {diff>0?'+':''}¥{fc(diff)} ({diff>=0?'+':''}{Math.round(diff/c.budgetTotal*100)}%)
+                  </span>
+                </div>
+              )}
+              {isBudget && c.sAtt.length>0 && (
+                <div className="flex justify-between text-xs mt-2">
+                  <span className="text-gray-400">実績参考</span>
+                  <span className="text-green-600">¥{fc(c.actualTotal)}</span>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+
+        {/* grand total for paySub 0,1 */}
+        {paySub<2 && staff.length>0 && (
+          <Card className={'p-4 border '+(paySub===0?'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200':'bg-gradient-to-r from-green-50 to-green-100 border-green-200')}>
+            <div className="flex flex-col" style={{gap:'6px'}}>
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-gray-700">{paySub===0?'予算 総額':'実績 総額'}</span>
+                <span className={'text-2xl font-bold '+(paySub===0?'text-blue-700':'text-green-700')}>¥{fc(paySub===0?grandBudget:grandActual)}</span>
+              </div>
+              <div className="grid grid-cols-2" style={{gap:'6px'}}>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">支給計</span><span className="font-medium">¥{fc(paySub===0?grandBudgetBase:grandActualBase)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-500">交通費計</span><span className="font-medium text-yellow-600">¥{fc(paySub===0?grandBudgetTrans:grandActualTrans)}</span></div>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">{paySub===0?'実績 参考':'予算 参考'}</span>
+                <span className="text-gray-500">¥{fc(paySub===0?grandActual:grandBudget)}</span>
+              </div>
+              {grandBudget>0 && (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-400">差異</span>
+                  <span className={(grandActual-grandBudget)>0?'text-red-500 font-medium':(grandActual-grandBudget)<0?'text-green-600 font-medium':'text-gray-400'}>
+                    {(grandActual-grandBudget)>0?'+':''}¥{fc(grandActual-grandBudget)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
+
+        {/* ── 給与明細 tab (paySub 2) ── */}
+        {paySub===2 && staff.length>0 && (
+          <div className="flex flex-col" style={{gap:'12px'}}>
+            {/* 一括CSV出力 */}
+            <Card className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-gray-500">明細CSV出力</span>
+                <button onClick={function(){
+                  staff.forEach(function(s){exportPayrollStaff(s.id);});
+                }} className="text-xs bg-purple-600 text-white px-3 py-1 rounded-lg font-medium">全員分を一括出力</button>
+              </div>
+            </Card>
+
+            {staff.map(function(s){
+              var c=calcStaff(s);
+              var sAtt2=attendance.filter(function(a){return a.staffId===s.id && a.date.startsWith(month);});
+              var mDays2=dim(month);
+
+              return (
+                <Card key={s.id} className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <span className="font-bold text-gray-800">{s.name}</span>
+                      <span className="ml-2"><Badge color={s.type==='fulltime'?'blue':'orange'}>{s.type==='fulltime'?'正社員':'アルバイト'}</Badge></span>
+                    </div>
+                    <button onClick={function(){exportPayrollStaff(s.id);}} className="text-xs bg-purple-100 text-purple-700 px-3 py-1 rounded-lg font-medium hover:bg-purple-200 transition">CSV出力</button>
+                  </div>
+
+                  {/* 基本情報 */}
+                  <div className="bg-gray-50 rounded-lg p-2 mb-3">
+                    <div className="grid grid-cols-2 text-xs" style={{gap:'4px'}}>
+                      <span className="text-gray-500">{s.type==='fulltime'?'月給':'時給'}</span>
+                      <span className="text-right font-medium">¥{fc(s.type==='fulltime'?s.monthlySalary:s.hourlyRate)}</span>
+                      <span className="text-gray-500">交通費/回</span>
+                      <span className="text-right font-medium">¥{fc(s.transport)}</span>
+                    </div>
+                  </div>
+
+                  {/* 勤怠日別リスト (compact) */}
+                  <div className="mb-3">
+                    <div className="text-xs font-medium text-gray-500 mb-1">勤怠明細</div>
+                    <div className="bg-gray-50 rounded-lg overflow-hidden" style={{maxHeight:'160px',overflowY:'auto'}}>
+                      <table style={{width:'100%',borderCollapse:'collapse'}}>
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="text-left text-xs text-gray-500 px-2 py-1" style={{fontSize:'10px'}}>日付</th>
+                            <th className="text-center text-xs text-gray-500 px-1 py-1" style={{fontSize:'10px'}}>シフト</th>
+                            <th className="text-center text-xs text-gray-500 px-1 py-1" style={{fontSize:'10px'}}>実績</th>
+                            <th className="text-right text-xs text-gray-500 px-2 py-1" style={{fontSize:'10px'}}>実働h</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(function(){
+                            var rowsArr=[];
+                            for(var dd=1;dd<=mDays2;dd++){
+                              var ds2=month+'-'+String(dd).padStart(2,'0');
+                              var sh2=monthShifts.find(function(x){return x.staffId===s.id && x.date===ds2;});
+                              var at2=sAtt2.find(function(x){return x.date===ds2;});
+                              if(!sh2 && !at2) continue;
+                              var actH2=at2?(function(){var hh=dh(at2.start,at2.end)-at2.breakMin/60;return hh>0?hh:0;})():0;
+                              var di2=dowi(ds2);
+                              rowsArr.push(
+                                <tr key={dd} style={{borderBottom:'1px solid #f3f4f6'}}>
+                                  <td className="px-2 py-1" style={{fontSize:'10px'}}>
+                                    <span className={di2===0?'text-red-500':di2===6?'text-blue-500':'text-gray-700'}>{dd}</span>
+                                    <span className="text-gray-400 ml-0.5">{dow(ds2)}</span>
+                                  </td>
+                                  <td className="text-center px-1 py-1 text-gray-500" style={{fontSize:'10px'}}>{sh2?sh2.start+'~'+sh2.end:'—'}</td>
+                                  <td className="text-center px-1 py-1" style={{fontSize:'10px'}}>
+                                    {at2?<span className="text-green-700 font-medium">{at2.start+'~'+at2.end}</span>:<span className="text-gray-300">—</span>}
+                                  </td>
+                                  <td className="text-right px-2 py-1 font-medium" style={{fontSize:'10px'}}>{actH2>0?actH2.toFixed(1):''}</td>
+                                </tr>
+                              );
+                            }
+                            return rowsArr;
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 予算 vs 実績 サマリ */}
+                  <div className="text-xs font-medium text-gray-500 mb-1">支給サマリ</div>
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="text-left text-xs text-gray-500 px-2 py-1"></th>
+                        <th className="text-right text-xs text-blue-600 px-2 py-1" style={{fontSize:'10px'}}>予算</th>
+                        <th className="text-right text-xs text-green-600 px-2 py-1" style={{fontSize:'10px'}}>実績</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={{borderBottom:'1px solid #f3f4f6'}}>
+                        <td className="text-xs text-gray-500 px-2 py-1">出勤日数</td>
+                        <td className="text-right text-xs font-medium px-2 py-1">{c.sShifts.length}日</td>
+                        <td className="text-right text-xs font-medium px-2 py-1">{c.sAtt.length}日</td>
+                      </tr>
+                      <tr style={{borderBottom:'1px solid #f3f4f6'}}>
+                        <td className="text-xs text-gray-500 px-2 py-1">勤務時間</td>
+                        <td className="text-right text-xs font-medium px-2 py-1">{c.budgetH.toFixed(1)}h</td>
+                        <td className="text-right text-xs font-medium px-2 py-1">{c.actualH.toFixed(1)}h</td>
+                      </tr>
+                      <tr style={{borderBottom:'1px solid #f3f4f6'}}>
+                        <td className="text-xs text-gray-500 px-2 py-1">基本給</td>
+                        <td className="text-right text-xs font-medium text-blue-600 px-2 py-1">¥{fc(c.budgetBase)}</td>
+                        <td className="text-right text-xs font-medium text-green-600 px-2 py-1">¥{fc(c.actualBase)}</td>
+                      </tr>
+                      <tr style={{borderBottom:'1px solid #f3f4f6'}}>
+                        <td className="text-xs text-gray-500 px-2 py-1">交通費</td>
+                        <td className="text-right text-xs font-medium text-yellow-600 px-2 py-1">¥{fc(c.budgetTransport)}</td>
+                        <td className="text-right text-xs font-medium text-yellow-600 px-2 py-1">¥{fc(c.actualTransport)}</td>
+                      </tr>
+                      <tr className="bg-gray-50">
+                        <td className="text-xs font-bold text-gray-700 px-2 py-1.5">合計</td>
+                        <td className="text-right text-sm font-bold text-blue-700 px-2 py-1.5">¥{fc(c.budgetTotal)}</td>
+                        <td className="text-right text-sm font-bold text-green-700 px-2 py-1.5">¥{fc(c.actualTotal)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /* ── Modals ── */
+  var renderModal = function(){
+    if(!modal) return null;
+    switch(modal.type){
+      case 'addStaff': return <Modal open={true} title="スタッフ追加" onClose={function(){setModal(null);}}><StaffForm onSave={addStaff} onCancel={function(){setModal(null);}}/></Modal>;
+      case 'editStaff': return <Modal open={true} title="スタッフ編集" onClose={function(){setModal(null);}}><StaffForm initial={modal.data} onSave={function(d){updStaff(modal.data.id,d);}} onCancel={function(){setModal(null);}} onDelete={function(){delStaff(modal.data.id);setModal(null);}}/></Modal>;
+      case 'addShift': return <Modal open={true} title="シフト追加" onClose={function(){setModal(null);}}><ShiftForm staffList={staff} onSave={addShift} onCancel={function(){setModal(null);}}/></Modal>;
+      case 'bulkShift': return <Modal open={true} title="一括登録" onClose={function(){setModal(null);}}><BulkShiftForm staffList={staff} month={month} daysInMonth={dim(month)} onSave={bulkAddShift} onCancel={function(){setModal(null);}}/></Modal>;
+      case 'bulkDeleteShift': return <Modal open={true} title="シフト一括削除" onClose={function(){setModal(null);}}><BulkDeleteShiftForm staffList={staff} monthShifts={monthShifts} monthLabel={month.replace('-','年')+'月'} onDelete={bulkDelShift} onCancel={function(){setModal(null);}}/></Modal>;
+      case 'addShiftDate': return <Modal open={true} title={modal.date+' シフト追加'} onClose={function(){setModal(null);}}><ShiftForm staffList={staff} onSave={addShift} onCancel={function(){setModal(null);}} fixedDate={modal.date}/></Modal>;
+      case 'editShift': return <Modal open={true} title="シフト編集" onClose={function(){setModal(null);}}><ShiftForm staffList={staff} initial={modal.data} onSave={function(d){updShift(modal.data.id,d);}} onCancel={function(){setModal(null);}} onDelete={function(){delShift(modal.data.id);setModal(null);}}/></Modal>;
+      case 'addAtt': return <Modal open={true} title="勤怠追加" onClose={function(){setModal(null);}}><AttForm staffList={staff} onSave={addAtt} onCancel={function(){setModal(null);}}/></Modal>;
+      case 'addAttFixed': return <Modal open={true} title={modal.date+' 勤怠入力'} onClose={function(){setModal(null);}}><AttForm staffList={staff} onSave={addAtt} onCancel={function(){setModal(null);}} fixedStaff={modal.staffId} fixedDate={modal.date}/></Modal>;
+      case 'editAttFromShift': return <Modal open={true} title={modal.date+' 勤怠編集'} onClose={function(){setModal(null);}}><AttForm staffList={staff} onSave={addAtt} onCancel={function(){setModal(null);}} fixedStaff={modal.staffId} fixedDate={modal.date} initial={{staffId:modal.staffId,date:modal.date,start:modal.shift.start,end:modal.shift.end,breakMin:(staffObj(modal.staffId)||{}).type==='fulltime'?60:0,note:''}}/></Modal>;
+      case 'editAtt': return <Modal open={true} title="勤怠編集" onClose={function(){setModal(null);}}><AttForm staffList={staff} initial={modal.data} onSave={function(d){updAtt(modal.data.id,d);}} onCancel={function(){setModal(null);}} onDelete={function(){delAtt(modal.data.id);setModal(null);}}/></Modal>;
+      default: return null;
+    }
+  };
+
+  /* ── Tab bar ── */
+  var tabs=[
+    {icon:'📊',label:'ホーム'},
+    {icon:'👥',label:'スタッフ'},
+    {icon:'📅',label:'シフト'},
+    {icon:'⏱',label:'勤怠'},
+    {icon:'💰',label:'給与'}
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20 max-w-lg mx-auto relative">
+      {saved && <div className="fixed top-4 right-4 z-50 bg-green-500 text-white text-xs px-3 py-1 rounded-full shadow fade-in">保存済み ✓</div>}
+      {tab===0 && renderDash()}
+      {tab===1 && renderStaff()}
+      {tab===2 && renderShifts()}
+      {tab===3 && renderAtt()}
+      {tab===4 && renderPayroll()}
+      {renderModal()}
+      {settingsUI}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40">
+        <div className="max-w-lg mx-auto flex">
+          {tabs.map(function(t,i){
+            return <button key={i} onClick={function(){setTab(i);}}
+              className={'flex-1 flex flex-col items-center py-2 transition '+(tab===i?'text-blue-600':'text-gray-400')}>
+              <span className="text-lg">{t.icon}</span>
+              <span className="text-xs mt-0.5 font-medium">{t.label}</span>
+            </button>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<AuthGate><App/></AuthGate>);
+</script>
+<script>
+(function(){
+  var el=document.getElementById('root');
+  function showErr(msg){el.innerHTML='<div style="padding:20px;color:red;font-family:sans-serif;word-break:break-all;"><h2>Error</h2><pre style="white-space:pre-wrap;font-size:11px;">'+msg+'</pre></div>';}
+  try{
+    if(typeof Babel==='undefined'){showErr('Babel failed to load');return;}
+    var src=document.getElementById('jsx-source').textContent;
+    var compiled=Babel.transform(src,{presets:['react']}).code;
+    var s=document.createElement('script');
+    s.textContent=compiled;
+    document.body.appendChild(s);
+  }catch(e){
+    showErr(e.message+'\n\nStack:\n'+(e.stack||'').substring(0,500));
+  }
+})();
+</script>
+</body>
+</html>
