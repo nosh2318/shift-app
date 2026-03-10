@@ -41,83 +41,6 @@ const dow = (ds) => ['日','月','火','水','木','金','土'][new Date(ds).get
 const dowi = (ds) => new Date(ds).getDay();
 const fdom = (ym) => new Date(ym+'-01').getDay();
 
-/* ── auth ── */
-var AUTH_KEY = 'shift_auth_hash';
-var AUTH_SESSION = 'shift_auth_session';
-
-/* simple hash for client-side password (NOT cryptographically secure, but sufficient for basic gate) */
-var simpleHash = function(str){
-  var hash=0;
-  for(var i=0;i<str.length;i++){
-    var c=str.charCodeAt(i);
-    hash=((hash<<5)-hash)+c;
-    hash=hash&hash;
-  }
-  return String(hash);
-};
-
-var getStoredHash = function(){return localStorage.getItem(AUTH_KEY);};
-var setStoredHash = function(h){localStorage.setItem(AUTH_KEY,h);};
-var isSessionAuth = function(){return sessionStorage.getItem(AUTH_SESSION)==='1';};
-var setSessionAuth = function(){sessionStorage.setItem(AUTH_SESSION,'1');};
-
-function AuthGate(props){
-  var s1=useState(isSessionAuth()); var authed=s1[0]; var setAuthed=s1[1];
-  var s2=useState(''); var pw=s2[0]; var setPw=s2[1];
-  var s3=useState(''); var err=s3[0]; var setErr=s3[1];
-  var s4=useState(!getStoredHash()); var isSetup=s4[0]; /* true if no password set yet */
-  var s5=useState(''); var pw2=s5[0]; var setPw2=s5[1];
-
-  if(authed) return props.children;
-
-  var handleLogin = function(){
-    if(!pw){setErr('パスワードを入力してください');return;}
-    var stored=getStoredHash();
-    if(simpleHash(pw)===stored){
-      setSessionAuth();
-      setAuthed(true);
-      setErr('');
-    } else {
-      setErr('パスワードが違います');
-    }
-  };
-
-  var handleSetup = function(){
-    if(!pw||pw.length<4){setErr('4文字以上のパスワードを入力してください');return;}
-    if(pw!==pw2){setErr('パスワードが一致しません');return;}
-    setStoredHash(simpleHash(pw));
-    setSessionAuth();
-    setAuthed(true);
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center fade-in">
-        <div className="text-4xl mb-3">🔒</div>
-        <h1 className="text-xl font-bold text-gray-800 mb-1">シフト・給与管理</h1>
-        <p className="text-gray-400 text-xs mb-6">{isSetup?'初回セットアップ：パスワードを設定してください':'パスワードを入力してログイン'}</p>
-        <div className="flex flex-col" style={{gap:'10px'}}>
-          <input type="password" value={pw} onChange={function(e){setPw(e.target.value);setErr('');}}
-            onKeyDown={function(e){if(e.key==='Enter'){isSetup?handleSetup():handleLogin();}}}
-            placeholder={isSetup?'新しいパスワード（4文字以上）':'パスワード'}
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 text-center"
-            autoFocus/>
-          {isSetup && (
-            <input type="password" value={pw2} onChange={function(e){setPw2(e.target.value);setErr('');}}
-              onKeyDown={function(e){if(e.key==='Enter')handleSetup();}}
-              placeholder="パスワード確認"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 text-center"/>
-          )}
-          {err && <div className="text-red-500 text-xs">{err}</div>}
-          <button onClick={isSetup?handleSetup:handleLogin}
-            className="w-full bg-blue-600 text-white font-medium rounded-xl py-3 text-sm transition active:scale-95">
-            {isSetup?'パスワードを設定':'ログイン'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── CSV helper ── */
 var downloadCSV = function(filename, rows){
@@ -681,23 +604,6 @@ function App(){
           inp.click();
         }}>データをインポート</Btn>
         <Btn color="red" full onClick={function(){if(confirm('全データを削除しますか？')){dp({type:'RESET'});localStorage.removeItem(SK);}}}>データリセット</Btn>
-        <div className="border-t border-gray-200 pt-3 mt-1">
-          <div className="text-xs text-gray-400 mb-2">アカウント</div>
-          <div className="flex flex-col" style={{gap:'8px'}}>
-            <Btn color="gray" full onClick={function(){
-              var np=prompt('新しいパスワード（4文字以上）:');
-              if(!np||np.length<4){if(np!==null)alert('4文字以上で入力してください');return;}
-              var np2=prompt('確認のためもう一度入力:');
-              if(np!==np2){alert('一致しません');return;}
-              setStoredHash(simpleHash(np));
-              alert('パスワードを変更しました');
-            }}>パスワード変更</Btn>
-            <Btn color="red" full onClick={function(){
-              sessionStorage.removeItem(AUTH_SESSION);
-              location.reload();
-            }}>ログアウト</Btn>
-          </div>
-        </div>
       </div>
     </Modal>
   );
@@ -1521,7 +1427,7 @@ function App(){
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<AuthGate><App/></AuthGate>);
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
 </html>
