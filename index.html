@@ -582,8 +582,8 @@ function App(){
           <h1 className="text-2xl font-bold text-gray-800 mb-2">シフト・給与管理</h1>
           <p className="text-gray-500 text-sm mb-6">飲食店向けスタッフ管理システム</p>
           <div className="flex flex-col" style={{gap:'10px'}}>
-            <Btn color="blue" full onClick={function(){var d=genDemo();dp({type:'LOAD',payload:d});saveS(d);setShowWelcome(false);}}>デモデータで始める</Btn>
-            <Btn color="white" full onClick={function(){setShowWelcome(false);}}>空の状態で始める</Btn>
+            <Btn color="blue" full onClick={function(){var d=genDemo();dp({type:'LOAD',payload:d});saveS(d);setShowWelcome(false);}}>デモを見る</Btn>
+            <Btn color="white" full onClick={function(){setShowWelcome(false);}}>運用開始する</Btn>
           </div>
         </div>
       </div>
