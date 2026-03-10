@@ -24,8 +24,20 @@ input[type=number]{-moz-appearance:textfield;}
 </style>
 </head>
 <body>
-<div id="root"></div>
-<script>window.onerror=function(m,s,l,c,e){var el=document.getElementById('root');if(el)el.innerHTML='<div style="padding:20px;font-family:sans-serif;"><h2 style="color:red;">Error</h2><pre style="white-space:pre-wrap;font-size:11px;color:#333;">'+String(m)+'\\nLine:'+l+'\\n'+(e&&e.stack?e.stack.substring(0,500):'')+'</pre></div>';return false;};</script>
+<div id="root"><div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#666;">読み込み中...</div></div>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+window.onerror=function(m,s,l,c,e){var el=document.getElementById('root');if(el)el.innerHTML='<div style="padding:20px;font-family:sans-serif;"><h2 style="color:red;">Error</h2><pre style="white-space:pre-wrap;font-size:11px;color:#333;">'+String(m)+'\\nLine:'+l+'\\n'+(e&&e.stack?e.stack.substring(0,500):'')+'</pre></div>';return false;};
+try{
+  var firebaseConfig={databaseURL:"https://neko-fb3d8-default-rtdb.firebaseio.com"};
+  firebase.initializeApp(firebaseConfig);
+  window.fbDb=firebase.database();
+  window.fbRef=window.fbDb.ref('shiftApp');
+}catch(e){
+  window.fbRef=null;
+}
+</script>
 <script type="text/babel">
 const {useState,useEffect,useReducer,useRef,useCallback} = React;
 
@@ -61,10 +73,13 @@ var downloadCSV = function(filename, rows){
   a.click();
 };
 
-/* ── storage ── */
+/* ── storage (Firebase + localStorage fallback) ── */
 var SK = 'shift_payroll_v1';
 var loadS = function(){try{var d=localStorage.getItem(SK);return d?JSON.parse(d):null;}catch(e){return null;}};
-var saveS = function(d){try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}};
+var saveS = function(d){
+  try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}
+  try{if(window.fbRef)window.fbRef.set(d);}catch(e){}
+};
 
 /* ── reducer ── */
 var initState = {staff:[],shifts:[],attendance:[]};
@@ -408,12 +423,49 @@ function App(){
   var longPressTimer=useRef(null);
 
   useEffect(function(){
-    var d=loadS();
-    if(d && d.staff && d.staff.length>0){
-      dp({type:'LOAD',payload:d});
-    } else {
-      setShowWelcome(true);
+    var ref=window.fbRef;
+    if(!ref){
+      /* Firebase未接続：localStorageのみ */
+      var d=loadS();
+      if(d && d.staff && d.staff.length>0){
+        dp({type:'LOAD',payload:d});
+      } else {
+        setShowWelcome(true);
+      }
+      return;
     }
+    /* Firebaseからデータを取得、なければlocalStorageから */
+    ref.once('value').then(function(snap){
+      var fd=snap.val();
+      if(fd && fd.staff && fd.staff.length>0){
+        dp({type:'LOAD',payload:fd});
+        try{localStorage.setItem(SK,JSON.stringify(fd));}catch(e){}
+      } else {
+        var d=loadS();
+        if(d && d.staff && d.staff.length>0){
+          dp({type:'LOAD',payload:d});
+          ref.set(d);
+        } else {
+          setShowWelcome(true);
+        }
+      }
+    }).catch(function(){
+      var d=loadS();
+      if(d && d.staff && d.staff.length>0){
+        dp({type:'LOAD',payload:d});
+      } else {
+        setShowWelcome(true);
+      }
+    });
+    /* リアルタイムで他の端末の変更を受信 */
+    var unsub=ref.on('value',function(snap){
+      var fd=snap.val();
+      if(fd && fd.staff){
+        dp({type:'LOAD',payload:fd});
+        try{localStorage.setItem(SK,JSON.stringify(fd));}catch(e){}
+      }
+    });
+    return function(){ref.off('value',unsub);};
   },[]);
 
   useEffect(function(){
@@ -581,10 +633,19 @@ function App(){
           <div className="text-5xl mb-4">📋</div>
           <h1 className="text-2xl font-bold text-gray-800 mb-2">シフト・給与管理</h1>
           <p className="text-gray-500 text-sm mb-6">飲食店向けスタッフ管理システム</p>
-          <div className="flex flex-col" style={{gap:'10px'}}>
-            <Btn color="blue" full onClick={function(){var d=genDemo();dp({type:'LOAD',payload:d});saveS(d);setShowWelcome(false);}}>デモを見る</Btn>
-            <Btn color="white" full onClick={function(){setShowWelcome(false);}}>運用開始する</Btn>
+          <div className="bg-blue-50 rounded-xl p-4 mb-4 text-left text-xs text-gray-600 leading-relaxed">
+            <p className="font-bold text-gray-700 mb-2">このアプリでできること</p>
+            <p className="mb-1">1. スタッフの登録・管理</p>
+            <p className="mb-1">2. シフトの作成・カレンダー表示</p>
+            <p className="mb-1">3. 出退勤の記録</p>
+            <p className="mb-1">4. 給与の自動計算・CSV出力</p>
+            <p className="mt-3 text-gray-400">まずは「デモを見る」でサンプルデータ付きの画面を確認するのがおすすめです。</p>
           </div>
+          <div className="flex flex-col" style={{gap:'10px'}}>
+            <Btn color="blue" full onClick={function(){var d=genDemo();dp({type:'LOAD',payload:d});saveS(d);setShowWelcome(false);}}>デモを見る（サンプルデータ付き）</Btn>
+            <Btn color="white" full onClick={function(){setShowWelcome(false);}}>運用開始する（空の状態から）</Btn>
+          </div>
+          <p className="text-gray-300 text-xs mt-4">※ URLを知っているメンバー全員がデータを共有できます</p>
         </div>
       </div>
     );
@@ -603,7 +664,7 @@ function App(){
           inp.onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){try{var d=JSON.parse(ev.target.result);dp({type:'LOAD',payload:d});saveS(d);alert('インポート完了');}catch(er){alert('ファイル形式エラー');}};r.readAsText(f);};
           inp.click();
         }}>データをインポート</Btn>
-        <Btn color="red" full onClick={function(){if(confirm('全データを削除しますか？')){dp({type:'RESET'});localStorage.removeItem(SK);}}}>データリセット</Btn>
+        <Btn color="red" full onClick={function(){if(confirm('全データを削除しますか？')){dp({type:'RESET'});localStorage.removeItem(SK);try{if(window.fbRef)window.fbRef.remove();}catch(e){}}}}>データリセット</Btn>
       </div>
     </Modal>
   );
