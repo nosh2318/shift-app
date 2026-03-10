@@ -75,7 +75,18 @@ var downloadCSV = function(filename, rows){
 
 /* ── storage (Firebase + localStorage fallback) ── */
 var SK = 'shift_payroll_v1';
-var loadS = function(){try{var d=localStorage.getItem(SK);return d?JSON.parse(d):null;}catch(e){return null;}};
+/* Firebaseは配列をオブジェクトに変換することがあるので正規化 */
+var toArr = function(v){
+  if(!v) return [];
+  if(Array.isArray(v)) return v.filter(function(x){return x!=null;});
+  if(typeof v==='object') return Object.keys(v).map(function(k){return v[k];}).filter(function(x){return x!=null;});
+  return [];
+};
+var normalizeData = function(d){
+  if(!d) return null;
+  return {staff:toArr(d.staff),shifts:toArr(d.shifts),attendance:toArr(d.attendance)};
+};
+var loadS = function(){try{var d=localStorage.getItem(SK);return d?normalizeData(JSON.parse(d)):null;}catch(e){return null;}};
 var saveS = function(d){
   try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}
   try{if(window.fbRef)window.fbRef.set(d);}catch(e){}
@@ -96,7 +107,7 @@ function reducer(state, action) {
     case 'ADD_ATT': ns={staff:state.staff,shifts:state.shifts,attendance:[].concat(state.attendance,[action.payload])};break;
     case 'UPD_ATT': ns={staff:state.staff,shifts:state.shifts,attendance:state.attendance.map(function(a){return a.id===action.payload.id?Object.assign({},a,action.payload):a;})};break;
     case 'DEL_ATT': ns={staff:state.staff,shifts:state.shifts,attendance:state.attendance.filter(function(a){return a.id!==action.payload;})};break;
-    case 'LOAD': return action.payload;
+    case 'LOAD': return normalizeData(action.payload)||initState;
     case 'RESET': ns=Object.assign({},initState);break;
     default: return state;
   }
@@ -436,7 +447,7 @@ function App(){
     }
     /* Firebaseからデータを取得、なければlocalStorageから */
     ref.once('value').then(function(snap){
-      var fd=snap.val();
+      var fd=normalizeData(snap.val());
       if(fd && fd.staff && fd.staff.length>0){
         dp({type:'LOAD',payload:fd});
         try{localStorage.setItem(SK,JSON.stringify(fd));}catch(e){}
@@ -459,7 +470,7 @@ function App(){
     });
     /* リアルタイムで他の端末の変更を受信 */
     var unsub=ref.on('value',function(snap){
-      var fd=snap.val();
+      var fd=normalizeData(snap.val());
       if(fd && fd.staff){
         dp({type:'LOAD',payload:fd});
         try{localStorage.setItem(SK,JSON.stringify(fd));}catch(e){}
