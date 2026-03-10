@@ -89,9 +89,13 @@ var normalizeData = function(d){
   return {staff:toArr(d.staff),shifts:toArr(d.shifts),attendance:toArr(d.attendance)};
 };
 var loadS = function(){try{var d=localStorage.getItem(SK);return d?normalizeData(JSON.parse(d)):null;}catch(e){return null;}};
+var _fbWriting=false;
 var saveS = function(d){
   try{localStorage.setItem(SK,JSON.stringify(d));}catch(e){}
-  try{if(window.fbRef)window.fbRef.set(d);}catch(e){}
+  if(window.fbRef){
+    _fbWriting=true;
+    try{window.fbRef.set(d).then(function(){_fbWriting=false;}).catch(function(){_fbWriting=false;});}catch(e){_fbWriting=false;}
+  }
 };
 
 /* ── reducer ── */
@@ -470,8 +474,11 @@ function App(){
         setShowWelcome(true);
       }
     });
-    /* リアルタイムで他の端末の変更を受信 */
+    /* リアルタイムで他の端末の変更を受信（自分の書き込み中は無視） */
+    var firstLoad=true;
     var unsub=ref.on('value',function(snap){
+      if(firstLoad){firstLoad=false;return;} /* 初回はonce で処理済み */
+      if(_fbWriting) return; /* 自分の変更は無視 */
       var fd=normalizeData(snap.val());
       if(fd && fd.staff){
         dp({type:'LOAD',payload:fd});
