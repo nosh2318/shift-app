@@ -1412,8 +1412,8 @@ function App(){
                               rowsArr.push(
                                 <tr key={dd} style={{borderBottom:'1px solid #f3f4f6'}}>
                                   <td className="px-2 py-1" style={{fontSize:'10px'}}>
-                                    <span className={di2===0?'text-red-500':di2===6?'text-blue-500':'text-gray-700'}>{dd}</span>
-                                    <span className="text-gray-400 ml-0.5">{dow(ds2)}</span>
+                                    <span className={di2===0?'text-red-500':di2===6?'text-blue-500':'text-gray-700'}>{parseInt(month.split('-')[1])}/{dd}</span>
+                                    <span className="text-gray-400 ml-0.5">({dow(ds2)})</span>
                                   </td>
                                   <td className="text-center px-1 py-1 text-gray-500" style={{fontSize:'10px'}}>{sh2?sh2.start+'~'+sh2.end:'—'}</td>
                                   <td className="text-center px-1 py-1" style={{fontSize:'10px'}}>
