@@ -55,6 +55,25 @@ const dow = (ds) => ['日','月','火','水','木','金','土'][new Date(ds).get
 const dowi = (ds) => new Date(ds).getDay();
 const fdom = (ym) => new Date(ym+'-01').getDay();
 
+/* 深夜時間(22:00-5:00)の計算 */
+const calcNightH = function(startT, endT){
+  /* startT,endT は "HH:MM" 文字列 */
+  if(!startT||!endT) return 0;
+  var s=pt(startT); var e=pt(endT);
+  if(e<=s) e+=24; /* 日跨ぎ */
+  var nightH=0;
+  /* 深夜帯: 22:00-29:00(翌5:00) と 0:00-5:00 */
+  /* 22-29の帯 */
+  var ns1=22; var ne1=29;
+  var os1=Math.max(s,ns1); var oe1=Math.min(e,ne1);
+  if(oe1>os1) nightH+=oe1-os1;
+  /* 0-5の帯 */
+  var ns2=0; var ne2=5;
+  var os2=Math.max(s,ns2); var oe2=Math.min(e,ne2);
+  if(oe2>os2) nightH+=oe2-os2;
+  return nightH;
+};
+
 
 /* ── CSV helper ── */
 var downloadCSV = function(filename, rows){
@@ -591,8 +610,9 @@ function App(){
 
     /* 勤怠明細 */
     rows.push(['【勤怠明細】']);
-    rows.push(['日付','曜日','シフト開始','シフト終了','実出勤','実退勤','休憩(分)','実働(h)','備考']);
+    rows.push(['日付','曜日','シフト開始','シフト終了','実出勤','実退勤','休憩(分)','実働(h)','うち深夜(h)','備考']);
     var totalActualH=0;
+    var totalActualNightH=0;
     var days2=dim(month);
     for(var d=1;d<=days2;d++){
       var ds=month+'-'+String(d).padStart(2,'0');
@@ -600,13 +620,16 @@ function App(){
       var att=sAtt.find(function(x){return x.date===ds;});
       if(!shift && !att) continue;
       var actH=att?(function(){var h=dh(att.start,att.end)-att.breakMin/60;return h>0?h:0;})():0;
+      var nightH=att?calcNightH(att.start,att.end):0;
       totalActualH+=actH;
+      totalActualNightH+=nightH;
       rows.push([
         ds, dow(ds),
         shift?shift.start:'', shift?shift.end:'',
         att?att.start:'', att?att.end:'',
         att?att.breakMin:'',
         actH>0?actH.toFixed(1):'',
+        nightH>0?nightH.toFixed(1):'',
         att?att.note:''
       ]);
     }
@@ -615,16 +638,21 @@ function App(){
     /* 支給計算 */
     rows.push(['【支給計算】']);
     var budgetH=sShifts.reduce(function(sum,x){return sum+dh(x.start,x.end);},0);
+    var budgetNightH=sShifts.reduce(function(sum,x){return sum+calcNightH(x.start,x.end);},0);
     var budgetBase=s.type==='fulltime'?s.monthlySalary:Math.round(budgetH*s.hourlyRate);
+    var budgetNight=s.type==='parttime'?Math.round(budgetNightH*s.hourlyRate*0.25):0;
     var budgetTrans=sShifts.length*s.transport;
     var actualBase=s.type==='fulltime'?s.monthlySalary:Math.round(totalActualH*s.hourlyRate);
+    var actualNight=s.type==='parttime'?Math.round(totalActualNightH*s.hourlyRate*0.25):0;
     var actualTrans=sAtt.length*s.transport;
     rows.push(['','予算（シフト）','実績（勤怠）']);
     rows.push(['出勤日数', sShifts.length+'日', sAtt.length+'日']);
     rows.push(['勤務時間', budgetH.toFixed(1)+'h', totalActualH.toFixed(1)+'h']);
+    rows.push(['うち深夜時間(22時-5時)', budgetNightH.toFixed(1)+'h', totalActualNightH.toFixed(1)+'h']);
     rows.push(['基本給','¥'+fc(budgetBase),'¥'+fc(actualBase)]);
+    rows.push(['深夜手当(25%割増)','¥'+fc(budgetNight),'¥'+fc(actualNight)]);
     rows.push(['交通費','¥'+fc(budgetTrans),'¥'+fc(actualTrans)]);
-    rows.push(['合計','¥'+fc(budgetBase+budgetTrans),'¥'+fc(actualBase+actualTrans)]);
+    rows.push(['合計','¥'+fc(budgetBase+budgetNight+budgetTrans),'¥'+fc(actualBase+actualNight+actualTrans)]);
 
     downloadCSV('給与明細_'+s.name+'_'+month+'.csv', rows);
   };
@@ -737,27 +765,33 @@ function App(){
           </div>
           {/* 予算支給額 */}
           {(function(){
-            var budgetPay=0; var budgetTrans=0;
+            var budgetPay=0; var budgetNightPay=0; var budgetTrans=0;
             staff.forEach(function(s){
               var ss=monthShifts.filter(function(x){return x.staffId===s.id;});
               var h=ss.reduce(function(sum,x){return sum+dh(x.start,x.end);},0);
+              var nh=ss.reduce(function(sum,x){return sum+calcNightH(x.start,x.end);},0);
               budgetPay+=s.type==='fulltime'?s.monthlySalary:Math.round(h*s.hourlyRate);
+              if(s.type==='parttime') budgetNightPay+=Math.round(nh*s.hourlyRate*0.25);
               budgetTrans+=ss.length*s.transport;
             });
             return (
               <div className="mt-3">
                 <div className="text-xs text-gray-500 mb-2">支給予定（予算）</div>
-                <div className="grid grid-cols-3" style={{gap:'8px'}}>
+                <div className="grid grid-cols-2" style={{gap:'8px'}}>
                   <div className="bg-blue-50 rounded-lg p-3 text-center">
                     <div className="text-lg font-bold text-blue-600">¥{fc(budgetPay)}</div>
                     <div className="text-xs text-gray-500">基本給</div>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-purple-600">¥{fc(budgetNightPay)}</div>
+                    <div className="text-xs text-gray-500">深夜手当</div>
                   </div>
                   <div className="bg-yellow-50 rounded-lg p-3 text-center">
                     <div className="text-lg font-bold text-yellow-600">¥{fc(budgetTrans)}</div>
                     <div className="text-xs text-gray-500">交通費</div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-green-700">¥{fc(budgetPay+budgetTrans)}</div>
+                    <div className="text-lg font-bold text-green-700">¥{fc(budgetPay+budgetNightPay+budgetTrans)}</div>
                     <div className="text-xs text-gray-500">合計</div>
                   </div>
                 </div>
@@ -1165,37 +1199,45 @@ function App(){
       /* 予算 = シフトベース */
       var sShifts=monthShifts.filter(function(x){return x.staffId===s.id;});
       var budgetH=sShifts.reduce(function(sum,x){return sum+dh(x.start,x.end);},0);
-      var budgetBase=0;
+      var budgetNightH=sShifts.reduce(function(sum,x){return sum+calcNightH(x.start,x.end);},0);
+      var budgetBase=0; var budgetNight=0;
       if(s.type==='fulltime'){budgetBase=s.monthlySalary;}
-      else{budgetBase=Math.round(budgetH*s.hourlyRate);}
+      else{
+        budgetBase=Math.round(budgetH*s.hourlyRate);
+        budgetNight=Math.round(budgetNightH*s.hourlyRate*0.25);
+      }
       var budgetTransport=sShifts.length*s.transport;
-      var budgetTotal=budgetBase+budgetTransport;
+      var budgetTotal=budgetBase+budgetNight+budgetTransport;
 
       /* 実績 = 勤怠ベース */
       var sAtt=monthAtt.filter(function(a){return a.staffId===s.id;});
       var actualH=sAtt.reduce(function(sum,a){var h=dh(a.start,a.end)-a.breakMin/60;return sum+(h>0?h:0);},0);
-      var actualBase=0;
+      var actualNightH=sAtt.reduce(function(sum,a){return sum+calcNightH(a.start,a.end);},0);
+      var actualBase=0; var actualNight=0;
       if(s.type==='fulltime'){actualBase=s.monthlySalary;}
-      else{actualBase=Math.round(actualH*s.hourlyRate);}
+      else{
+        actualBase=Math.round(actualH*s.hourlyRate);
+        actualNight=Math.round(actualNightH*s.hourlyRate*0.25);
+      }
       var actualTransport=sAtt.length*s.transport;
-      var actualTotal=actualBase+actualTransport;
+      var actualTotal=actualBase+actualNight+actualTransport;
 
       return {
         sShifts:sShifts, sAtt:sAtt,
-        budgetH:budgetH, budgetBase:budgetBase, budgetTransport:budgetTransport, budgetTotal:budgetTotal,
-        actualH:actualH, actualBase:actualBase, actualTransport:actualTransport, actualTotal:actualTotal
+        budgetH:budgetH, budgetNightH:budgetNightH, budgetBase:budgetBase, budgetNight:budgetNight, budgetTransport:budgetTransport, budgetTotal:budgetTotal,
+        actualH:actualH, actualNightH:actualNightH, actualBase:actualBase, actualNight:actualNight, actualTransport:actualTransport, actualTotal:actualTotal
       };
     };
 
     /* totals */
     var grandBudget=0; var grandActual=0;
-    var grandBudgetBase=0; var grandBudgetTrans=0;
-    var grandActualBase=0; var grandActualTrans=0;
+    var grandBudgetBase=0; var grandBudgetNight=0; var grandBudgetTrans=0;
+    var grandActualBase=0; var grandActualNight=0; var grandActualTrans=0;
     staff.forEach(function(s){
       var c=calcStaff(s);
       grandBudget+=c.budgetTotal; grandActual+=c.actualTotal;
-      grandBudgetBase+=c.budgetBase; grandBudgetTrans+=c.budgetTransport;
-      grandActualBase+=c.actualBase; grandActualTrans+=c.actualTransport;
+      grandBudgetBase+=c.budgetBase; grandBudgetNight+=c.budgetNight; grandBudgetTrans+=c.budgetTransport;
+      grandActualBase+=c.actualBase; grandActualNight+=c.actualNight; grandActualTrans+=c.actualTransport;
     });
 
     return (
@@ -1218,6 +1260,8 @@ function App(){
           var c=calcStaff(s);
           var isBudget=paySub===0;
           var baseAmt=isBudget?c.budgetBase:c.actualBase;
+          var nightAmt=isBudget?c.budgetNight:c.actualNight;
+          var nightH=isBudget?c.budgetNightH:c.actualNightH;
           var transAmt=isBudget?c.budgetTransport:c.actualTransport;
           var totalAmt=isBudget?c.budgetTotal:c.actualTotal;
           var hours=isBudget?c.budgetH:c.actualH;
@@ -1234,12 +1278,17 @@ function App(){
                 </div>
                 <span className="text-xs text-gray-400">{days2}日 / {hours.toFixed(1)}h</span>
               </div>
-              {/* 支給 / 交通費 分離表示 */}
-              <div className="grid grid-cols-3" style={{gap:'6px'}}>
+              {/* 支給 / 深夜 / 交通費 / 合計 */}
+              <div className="grid grid-cols-2" style={{gap:'6px'}}>
                 <div className={(isBudget?'bg-blue-50':'bg-green-50')+' rounded-lg p-2 text-center'}>
                   <div className={'text-sm font-bold '+(isBudget?'text-blue-600':'text-green-600')}>¥{fc(baseAmt)}</div>
-                  <div className="text-xs text-gray-500">支給</div>
+                  <div className="text-xs text-gray-500">基本給</div>
                   {s.type==='parttime' && <div className="text-xs text-gray-400" style={{fontSize:'9px'}}>¥{fc(s.hourlyRate)}×{hours.toFixed(1)}h</div>}
+                </div>
+                <div className="bg-purple-50 rounded-lg p-2 text-center">
+                  <div className="text-sm font-bold text-purple-600">¥{fc(nightAmt)}</div>
+                  <div className="text-xs text-gray-500">深夜手当</div>
+                  {s.type==='parttime' && nightH>0 && <div className="text-xs text-gray-400" style={{fontSize:'9px'}}>{nightH.toFixed(1)}h×25%</div>}
                 </div>
                 <div className="bg-yellow-50 rounded-lg p-2 text-center">
                   <div className="text-sm font-bold text-yellow-600">¥{fc(transAmt)}</div>
@@ -1278,9 +1327,10 @@ function App(){
                 <span className="font-bold text-gray-700">{paySub===0?'予算 総額':'実績 総額'}</span>
                 <span className={'text-2xl font-bold '+(paySub===0?'text-blue-700':'text-green-700')}>¥{fc(paySub===0?grandBudget:grandActual)}</span>
               </div>
-              <div className="grid grid-cols-2" style={{gap:'6px'}}>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">支給計</span><span className="font-medium">¥{fc(paySub===0?grandBudgetBase:grandActualBase)}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500">交通費計</span><span className="font-medium text-yellow-600">¥{fc(paySub===0?grandBudgetTrans:grandActualTrans)}</span></div>
+              <div className="grid grid-cols-3" style={{gap:'6px'}}>
+                <div className="flex justify-between text-xs"><span className="text-gray-500">基本給</span><span className="font-medium">¥{fc(paySub===0?grandBudgetBase:grandActualBase)}</span></div>
+                <div className="flex justify-between text-xs"><span className="text-gray-500">深夜手当</span><span className="font-medium text-purple-600">¥{fc(paySub===0?grandBudgetNight:grandActualNight)}</span></div>
+                <div className="flex justify-between text-xs"><span className="text-gray-500">交通費</span><span className="font-medium text-yellow-600">¥{fc(paySub===0?grandBudgetTrans:grandActualTrans)}</span></div>
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-gray-400">{paySub===0?'実績 参考':'予算 参考'}</span>
@@ -1402,9 +1452,19 @@ function App(){
                         <td className="text-right text-xs font-medium px-2 py-1">{c.actualH.toFixed(1)}h</td>
                       </tr>
                       <tr style={{borderBottom:'1px solid #f3f4f6'}}>
+                        <td className="text-xs text-gray-500 px-2 py-1">うち深夜時間</td>
+                        <td className="text-right text-xs font-medium px-2 py-1">{c.budgetNightH.toFixed(1)}h</td>
+                        <td className="text-right text-xs font-medium px-2 py-1">{c.actualNightH.toFixed(1)}h</td>
+                      </tr>
+                      <tr style={{borderBottom:'1px solid #f3f4f6'}}>
                         <td className="text-xs text-gray-500 px-2 py-1">基本給</td>
                         <td className="text-right text-xs font-medium text-blue-600 px-2 py-1">¥{fc(c.budgetBase)}</td>
                         <td className="text-right text-xs font-medium text-green-600 px-2 py-1">¥{fc(c.actualBase)}</td>
+                      </tr>
+                      <tr style={{borderBottom:'1px solid #f3f4f6'}}>
+                        <td className="text-xs text-gray-500 px-2 py-1">深夜手当(25%)</td>
+                        <td className="text-right text-xs font-medium text-purple-600 px-2 py-1">¥{fc(c.budgetNight)}</td>
+                        <td className="text-right text-xs font-medium text-purple-600 px-2 py-1">¥{fc(c.actualNight)}</td>
                       </tr>
                       <tr style={{borderBottom:'1px solid #f3f4f6'}}>
                         <td className="text-xs text-gray-500 px-2 py-1">交通費</td>
